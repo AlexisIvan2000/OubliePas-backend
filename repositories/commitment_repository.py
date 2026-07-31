@@ -1,0 +1,306 @@
+import uuid
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from models.db.commitments_db import (
+    MAX_REMINDER_DAYS,
+    Commitment,
+    CommitmentOccurrence,
+)
+
+
+class CommitmentRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def create(self, data: dict) -> Commitment:
+        commitment = Commitment(**data)
+        self.session.add(commitment)
+        await self.session.flush()
+        return commitment
+
+    async def get_by_id(self, commitment_id: str, user_id: str) -> Commitment | None:
+        result = await self.session.execute(
+            select(Commitment).where(
+                Commitment.id == commitment_id,
+                Commitment.user_id == user_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_for_user(
+        self,
+        user_id: str,
+        *,
+        commitment_type: str | None = None,
+        status: str | None = None,
+    ) -> list[Commitment]:
+        query = select(Commitment).where(Commitment.user_id == user_id)
+        if commitment_type is not None:
+            query = query.where(Commitment.type == commitment_type)
+        if status is not None:
+            query = query.where(Commitment.status == status)
+        result = await self.session.execute(query.order_by(Commitment.title))
+        return list(result.scalars().all())
+
+    async def list_active(self) -> list[Commitment]:
+        result = await self.session.execute(
+            select(Commitment).where(Commitment.status == "active").order_by(Commitment.created_at)
+        )
+        return list(result.scalars().all())
+
+    async def update(self, commitment_id: str, user_id: str, data: dict) -> Commitment | None:
+        commitment = await self.get_by_id(commitment_id, user_id)
+        if commitment is None:
+            return None
+        for field, value in data.items():
+            setattr(commitment, field, value)
+        await self.session.flush()
+        return commitment
+
+    async def delete(self, commitment_id: str, user_id: str) -> bool:
+        result = await self.session.execute(
+            delete(Commitment).where(
+                Commitment.id == commitment_id,
+                Commitment.user_id == user_id,
+            )
+        )
+        await self.session.flush()
+        return result.rowcount > 0
+
+    async def add_occurrences(self, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+
+        now = datetime.now(timezone.utc)
+        payload = [
+            {
+                "id": uuid.uuid4(),
+                "status": "pending",
+                "created_at": now,
+                **row,
+            }
+            for row in rows
+        ]
+        statement = (
+            pg_insert(CommitmentOccurrence)
+            .values(payload)
+            .on_conflict_do_nothing(constraint="uq_occurrence_commitment_due")
+        )
+        result = await self.session.execute(statement)
+        await self.session.flush()
+        return result.rowcount
+
+    async def get_occurrence(
+        self, occurrence_id: str, user_id: str
+    ) -> CommitmentOccurrence | None:
+        result = await self.session.execute(
+            select(CommitmentOccurrence)
+            .options(selectinload(CommitmentOccurrence.commitment))
+            .where(
+                CommitmentOccurrence.id == occurrence_id,
+                CommitmentOccurrence.user_id == user_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_occurrences(
+        self,
+        user_id: str,
+        *,
+        start: date,
+        end: date,
+        status: str | None = None,
+        limit: int | None = None,
+    ) -> list[CommitmentOccurrence]:
+        query = (
+            select(CommitmentOccurrence)
+            .options(selectinload(CommitmentOccurrence.commitment))
+            .where(
+                CommitmentOccurrence.user_id == user_id,
+                CommitmentOccurrence.due_date >= start,
+                CommitmentOccurrence.due_date <= end,
+            )
+        )
+        if status is not None:
+            query = query.where(CommitmentOccurrence.status == status)
+        query = query.order_by(CommitmentOccurrence.due_date)
+        if limit is not None:
+            query = query.limit(limit)
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
+
+    async def next_due_dates(self, user_id: str, floor: date) -> dict[uuid.UUID, date]:
+        result = await self.session.execute(
+            select(
+                CommitmentOccurrence.commitment_id,
+                func.min(CommitmentOccurrence.due_date),
+            )
+            .where(
+                CommitmentOccurrence.user_id == user_id,
+                CommitmentOccurrence.status == "pending",
+                CommitmentOccurrence.due_date >= floor,
+            )
+            .group_by(CommitmentOccurrence.commitment_id)
+        )
+        return {commitment_id: due_date for commitment_id, due_date in result.all()}
+
+    async def totals_by_type(self, user_id: str, *, start: date, end: date) -> dict[str, Decimal]:
+        result = await self.session.execute(
+            select(Commitment.type, func.coalesce(func.sum(CommitmentOccurrence.amount), 0))
+            .join(Commitment, Commitment.id == CommitmentOccurrence.commitment_id)
+            .where(
+                CommitmentOccurrence.user_id == user_id,
+                CommitmentOccurrence.due_date >= start,
+                CommitmentOccurrence.due_date <= end,
+                CommitmentOccurrence.status != "skipped",
+            )
+            .group_by(Commitment.type)
+        )
+        return {row_type: Decimal(total) for row_type, total in result.all()}
+
+    async def totals_by_status(
+        self, user_id: str, *, start: date, end: date
+    ) -> dict[str, Decimal]:
+        result = await self.session.execute(
+            select(
+                CommitmentOccurrence.status,
+                func.coalesce(func.sum(CommitmentOccurrence.amount), 0),
+            )
+            .where(
+                CommitmentOccurrence.user_id == user_id,
+                CommitmentOccurrence.due_date >= start,
+                CommitmentOccurrence.due_date <= end,
+            )
+            .group_by(CommitmentOccurrence.status)
+        )
+        return {status: Decimal(total) for status, total in result.all()}
+
+    async def count_late(self, user_id: str, on_date: date) -> int:
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(CommitmentOccurrence)
+            .where(
+                CommitmentOccurrence.user_id == user_id,
+                CommitmentOccurrence.status == "pending",
+                CommitmentOccurrence.due_date < on_date,
+            )
+        )
+        return result.scalar_one()
+
+    async def count_occurrences(
+        self,
+        user_id: str,
+        *,
+        start: date,
+        end: date,
+        status: str | None = None,
+    ) -> int:
+        query = (
+            select(func.count())
+            .select_from(CommitmentOccurrence)
+            .where(
+                CommitmentOccurrence.user_id == user_id,
+                CommitmentOccurrence.due_date >= start,
+                CommitmentOccurrence.due_date <= end,
+            )
+        )
+        if status is not None:
+            query = query.where(CommitmentOccurrence.status == status)
+        result = await self.session.execute(query)
+        return result.scalar_one()
+
+    async def count_commitments(self, user_id: str, *, status: str | None = None) -> int:
+        query = select(func.count()).select_from(Commitment).where(Commitment.user_id == user_id)
+        if status is not None:
+            query = query.where(Commitment.status == status)
+        result = await self.session.execute(query)
+        return result.scalar_one()
+
+    async def delete_pending_occurrences_from(self, commitment_id: str, floor: date) -> int:
+        result = await self.session.execute(
+            delete(CommitmentOccurrence).where(
+                CommitmentOccurrence.commitment_id == commitment_id,
+                CommitmentOccurrence.status == "pending",
+                CommitmentOccurrence.due_date >= floor,
+            )
+        )
+        await self.session.flush()
+        return result.rowcount
+
+    async def set_occurrence_status(
+        self,
+        occurrence_id: str,
+        user_id: str,
+        *,
+        status: str,
+        amount: Decimal | None = None,
+        paid_at: datetime | None = None,
+    ) -> CommitmentOccurrence | None:
+        occurrence = await self.get_occurrence(occurrence_id, user_id)
+        if occurrence is None:
+            return None
+
+        occurrence.status = status
+        if amount is not None:
+            occurrence.amount = amount
+        occurrence.paid_at = paid_at if status == "paid" else None
+        await self.session.flush()
+        return occurrence
+
+    async def due_for_reminder(self, on_date: date) -> list[tuple[CommitmentOccurrence, Commitment]]:
+        result = await self.session.execute(
+            select(CommitmentOccurrence, Commitment)
+            .join(Commitment, Commitment.id == CommitmentOccurrence.commitment_id)
+            .where(
+                CommitmentOccurrence.status == "pending",
+                CommitmentOccurrence.reminder_sent_at.is_(None),
+                CommitmentOccurrence.due_date >= on_date,
+                CommitmentOccurrence.due_date <= on_date + timedelta(days=MAX_REMINDER_DAYS),
+                Commitment.status == "active",
+                Commitment.is_reminder_enabled.is_(True),
+            )
+            .order_by(CommitmentOccurrence.due_date)
+        )
+        return [
+            (occurrence, commitment)
+            for occurrence, commitment in result.all()
+            if (occurrence.due_date - on_date).days <= commitment.reminder_days_before
+        ]
+
+    async def mark_reminders_sent(
+        self, occurrence_ids: list[uuid.UUID], *, sent_at: datetime | None = None
+    ) -> int:
+        if not occurrence_ids:
+            return 0
+
+        result = await self.session.execute(
+            update(CommitmentOccurrence)
+            .where(CommitmentOccurrence.id.in_(occurrence_ids))
+            .values(reminder_sent_at=sent_at or datetime.now(timezone.utc))
+        )
+        await self.session.flush()
+        return result.rowcount
+
+    async def total_between(
+        self,
+        user_id: str,
+        *,
+        start: date,
+        end: date,
+        status: str | None = None,
+    ) -> Decimal:
+        query = select(func.coalesce(func.sum(CommitmentOccurrence.amount), 0)).where(
+            CommitmentOccurrence.user_id == user_id,
+            CommitmentOccurrence.due_date >= start,
+            CommitmentOccurrence.due_date <= end,
+        )
+        if status is not None:
+            query = query.where(CommitmentOccurrence.status == status)
+        result = await self.session.execute(query)
+        return Decimal(result.scalar_one())

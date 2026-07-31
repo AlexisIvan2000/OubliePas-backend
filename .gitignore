@@ -1,0 +1,46 @@
+# Environnement / secrets
+.env
+.env.*
+!.env.example
+
+# Environnements virtuels
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Tests / qualité
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.tox/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs / uploads locaux
+*.log
+uploads/
+
+# Claude Code (reglages personnels, non partages)
+.claude/settings.local.json
+

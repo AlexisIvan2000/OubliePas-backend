@@ -1,0 +1,395 @@
+from datetime import timedelta
+
+import pytest
+
+from services.commitments.occurrence_generator import today_utc
+
+pytestmark = pytest.mark.integration
+
+
+def auth(token):
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def token(verified):
+    return verified["tokens"]["access_token"]
+
+
+@pytest.fixture
+def other_token(client, mailbox):
+    payload = {"first_name": "Sophie", "email": "sophie@example.com", "password": "MotDePasse1!"}
+    assert client.post("/v1/auth/register", json=payload).status_code == 201
+    code = mailbox[-1]["code"]
+    response = client.post(
+        "/v1/auth/verify-email", json={"email": payload["email"], "code": code}
+    )
+    assert response.status_code == 200
+    return response.json()["access_token"]
+
+
+def netflix(**overrides):
+    return {
+        "title": "Netflix",
+        "type": "subscription",
+        "category": "entertainment",
+        "amount": "18.99",
+        "frequency": "monthly",
+        "starts_on": today_utc().isoformat(),
+        **overrides,
+    }
+
+
+def loyer(**overrides):
+    return {
+        "title": "Loyer",
+        "type": "invoice",
+        "category": "housing",
+        "amount": "1250.00",
+        "frequency": "monthly",
+        "starts_on": today_utc().isoformat(),
+        **overrides,
+    }
+
+
+def create(client, token, payload):
+    response = client.post("/v1/commitments", json=payload, headers=auth(token))
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+class TestCreation:
+    def test_creates_a_subscription(self, client, token):
+        body = create(client, token, netflix())
+        assert body["title"] == "Netflix"
+        assert body["type"] == "subscription"
+        assert body["status"] == "active"
+        assert body["amount"] == "18.99"
+        assert body["next_due_date"] == today_utc().isoformat()
+
+    def test_trims_the_title(self, client, token):
+        body = create(client, token, netflix(title="  Spotify  "))
+        assert body["title"] == "Spotify"
+
+    def test_requires_authentication(self, client):
+        assert client.post("/v1/commitments", json=netflix()).status_code == 401
+
+    @pytest.mark.parametrize(
+        "override",
+        [
+            {"amount": "0"},
+            {"amount": "-5.00"},
+            {"amount": "12.345"},
+            {"type": "mortgage"},
+            {"frequency": "daily"},
+            {"title": "   "},
+            {"title": ""},
+            {"reminder_days_before": 45},
+            {"reminder_days_before": -1},
+        ],
+    )
+    def test_rejects_invalid_payloads(self, client, token, override):
+        response = client.post("/v1/commitments", json=netflix(**override), headers=auth(token))
+        assert response.status_code == 422
+        assert response.json()["detail"]["code"] == "VALIDATION_ERROR"
+
+    def test_rejects_a_term_ending_before_it_starts(self, client, token):
+        payload = netflix(ends_on=(today_utc() - timedelta(days=10)).isoformat())
+        response = client.post("/v1/commitments", json=payload, headers=auth(token))
+        assert response.status_code == 422
+
+
+class TestListing:
+    def test_filters_by_type(self, client, token):
+        create(client, token, netflix())
+        create(client, token, loyer())
+
+        subscriptions = client.get(
+            "/v1/commitments", params={"type": "subscription"}, headers=auth(token)
+        ).json()
+        invoices = client.get(
+            "/v1/commitments", params={"type": "invoice"}, headers=auth(token)
+        ).json()
+
+        assert [item["title"] for item in subscriptions] == ["Netflix"]
+        assert [item["title"] for item in invoices] == ["Loyer"]
+
+    def test_rejects_an_unknown_type_filter(self, client, token):
+        response = client.get("/v1/commitments", params={"type": "car"}, headers=auth(token))
+        assert response.status_code == 422
+
+    def test_never_leaks_another_account(self, client, token, other_token):
+        create(client, token, netflix())
+        assert client.get("/v1/commitments", headers=auth(other_token)).json() == []
+
+
+class TestRouteOrdering:
+    def test_summary_is_not_captured_by_the_id_route(self, client, token):
+        response = client.get("/v1/commitments/summary", headers=auth(token))
+        assert response.status_code == 200
+        assert "month_total" in response.json()
+
+    def test_occurrences_is_not_captured_by_the_id_route(self, client, token):
+        response = client.get("/v1/commitments/occurrences", headers=auth(token))
+        assert response.status_code == 200
+        assert isinstance(response.json(), list)
+
+    def test_a_malformed_id_is_rejected(self, client, token):
+        assert client.get("/v1/commitments/not-a-uuid", headers=auth(token)).status_code == 422
+
+
+class TestSingleCommitment:
+    def test_reads_back_what_was_created(self, client, token):
+        created = create(client, token, netflix())
+        body = client.get(f"/v1/commitments/{created['id']}", headers=auth(token)).json()
+        assert body["id"] == created["id"]
+
+    def test_another_account_gets_a_not_found(self, client, token, other_token):
+        created = create(client, token, netflix())
+        response = client.get(f"/v1/commitments/{created['id']}", headers=auth(other_token))
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "COMMITMENT_NOT_FOUND"
+
+    def test_rejects_an_empty_patch(self, client, token):
+        created = create(client, token, netflix())
+        response = client.patch(
+            f"/v1/commitments/{created['id']}", json={}, headers=auth(token)
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "NO_FIELDS_TO_UPDATE"
+
+    def test_rejects_an_end_date_before_the_stored_start(self, client, token):
+        created = create(client, token, netflix())
+        response = client.patch(
+            f"/v1/commitments/{created['id']}",
+            json={"ends_on": (today_utc() - timedelta(days=30)).isoformat()},
+            headers=auth(token),
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "INVALID_DATE_RANGE"
+
+    def test_pausing_it_drops_the_pending_schedule(self, client, token):
+        created = create(client, token, netflix())
+        response = client.patch(
+            f"/v1/commitments/{created['id']}", json={"status": "paused"}, headers=auth(token)
+        )
+        assert response.status_code == 200
+        assert response.json()["next_due_date"] is None
+        assert client.get("/v1/commitments/occurrences", headers=auth(token)).json() == []
+
+    def test_renaming_leaves_the_schedule_alone(self, client, token):
+        created = create(client, token, netflix())
+        before = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+
+        client.patch(
+            f"/v1/commitments/{created['id']}", json={"title": "Netflix Premium"}, headers=auth(token)
+        )
+        after = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+
+        assert [row["id"] for row in after] == [row["id"] for row in before]
+        assert after[0]["title"] == "Netflix Premium"
+
+    def test_changing_the_amount_reprices_pending_occurrences(self, client, token):
+        created = create(client, token, netflix())
+        response = client.patch(
+            f"/v1/commitments/{created['id']}", json={"amount": "24.99"}, headers=auth(token)
+        )
+        assert response.status_code == 200
+
+        occurrences = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+        assert all(row["amount"] == "24.99" for row in occurrences)
+
+    def test_deleting_it_makes_it_disappear(self, client, token):
+        created = create(client, token, netflix())
+        deleted = client.delete(f"/v1/commitments/{created['id']}", headers=auth(token))
+        assert deleted.status_code == 200
+
+        assert client.get(f"/v1/commitments/{created['id']}", headers=auth(token)).status_code == 404
+        assert client.get("/v1/commitments/occurrences", headers=auth(token)).json() == []
+
+
+class TestOccurrences:
+    def test_carry_the_commitment_identity(self, client, token):
+        create(client, token, netflix())
+        rows = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+        assert rows[0]["title"] == "Netflix"
+        assert rows[0]["type"] == "subscription"
+        assert rows[0]["category"] == "entertainment"
+        assert rows[0]["status"] == "pending"
+        assert rows[0]["is_late"] is False
+
+    def test_marking_one_paid_stamps_the_date(self, client, token):
+        create(client, token, netflix())
+        rows = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+
+        response = client.patch(
+            f"/v1/commitments/occurrences/{rows[0]['id']}",
+            json={"status": "paid"},
+            headers=auth(token),
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "paid"
+        assert body["paid_at"] is not None
+        assert body["is_late"] is False
+
+    def test_correcting_the_amount_of_a_variable_invoice(self, client, token):
+        create(client, token, loyer(title="Electricite", amount="87.00"))
+        rows = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+
+        body = client.patch(
+            f"/v1/commitments/occurrences/{rows[0]['id']}",
+            json={"status": "paid", "amount": "112.40"},
+            headers=auth(token),
+        ).json()
+        assert body["amount"] == "112.40"
+
+    def test_reverting_to_pending_clears_the_payment_date(self, client, token):
+        create(client, token, netflix())
+        rows = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+        url = f"/v1/commitments/occurrences/{rows[0]['id']}"
+
+        client.patch(url, json={"status": "paid"}, headers=auth(token))
+        body = client.patch(url, json={"status": "pending"}, headers=auth(token)).json()
+        assert body["status"] == "pending"
+        assert body["paid_at"] is None
+
+    def test_another_account_cannot_touch_them(self, client, token, other_token):
+        create(client, token, netflix())
+        rows = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+
+        response = client.patch(
+            f"/v1/commitments/occurrences/{rows[0]['id']}",
+            json={"status": "paid"},
+            headers=auth(other_token),
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "OCCURRENCE_NOT_FOUND"
+
+    def test_rejects_a_reversed_range(self, client, token):
+        today = today_utc()
+        response = client.get(
+            "/v1/commitments/occurrences",
+            params={"start": today.isoformat(), "end": (today - timedelta(days=5)).isoformat()},
+            headers=auth(token),
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "INVALID_DATE_RANGE"
+
+    def test_rejects_an_oversized_range(self, client, token):
+        today = today_utc()
+        response = client.get(
+            "/v1/commitments/occurrences",
+            params={"start": today.isoformat(), "end": (today + timedelta(days=500)).isoformat()},
+            headers=auth(token),
+        )
+        assert response.status_code == 400
+
+
+class TestSummary:
+    def test_splits_subscriptions_from_invoices(self, client, token):
+        create(client, token, netflix())
+        create(client, token, loyer())
+
+        body = client.get("/v1/commitments/summary", headers=auth(token)).json()
+        assert body["subscriptions_total"] == "18.99"
+        assert body["invoices_total"] == "1250.00"
+        assert body["month_total"] == "1268.99"
+        assert body["active_count"] == 2
+        assert body["late_count"] == 0
+        assert body["currency"] == "CAD"
+        assert body["month"] == f"{today_utc().year:04d}-{today_utc().month:02d}"
+
+    def test_lists_what_comes_next(self, client, token):
+        create(client, token, netflix())
+        body = client.get("/v1/commitments/summary", headers=auth(token)).json()
+        assert body["upcoming"][0]["title"] == "Netflix"
+        assert body["upcoming_days"] == 14
+        assert len(body["upcoming"]) <= 8
+
+    def test_only_covers_the_next_fourteen_days(self, client, token):
+        today = today_utc()
+        create(client, token, netflix(starts_on=(today + timedelta(days=3)).isoformat()))
+        create(
+            client,
+            token,
+            loyer(title="Assurance", starts_on=(today + timedelta(days=13)).isoformat()),
+        )
+        create(
+            client,
+            token,
+            loyer(title="Impots", starts_on=(today + timedelta(days=20)).isoformat()),
+        )
+
+        body = client.get("/v1/commitments/summary", headers=auth(token)).json()
+        assert [row["title"] for row in body["upcoming"]] == ["Netflix", "Assurance"]
+        assert body["upcoming_total"] == 2
+
+    def test_reports_how_many_were_truncated(self, client, token):
+        today = today_utc()
+        for index in range(10):
+            create(
+                client,
+                token,
+                netflix(
+                    title=f"Service {index}",
+                    frequency="oneoff",
+                    starts_on=(today + timedelta(days=index)).isoformat(),
+                ),
+            )
+
+        body = client.get("/v1/commitments/summary", headers=auth(token)).json()
+        assert len(body["upcoming"]) == 8
+        assert body["upcoming_total"] == 10
+
+    def test_excludes_what_is_already_late(self, client, token, db):
+        created = create(client, token, netflix())
+        db(
+            "UPDATE commitment_occurrences SET due_date = current_date - 3"
+            " WHERE commitment_id = :id AND due_date = current_date",
+            id=created["id"],
+        )
+
+        body = client.get("/v1/commitments/summary", headers=auth(token)).json()
+        assert body["late_count"] == 1
+        assert body["upcoming"] == []
+        assert body["upcoming_total"] == 0
+
+    def test_a_past_start_date_never_creates_history(self, client, token):
+        today = today_utc()
+        created = create(
+            client, token, netflix(starts_on=(today - timedelta(days=40)).isoformat())
+        )
+
+        rows = client.get(
+            "/v1/commitments/occurrences",
+            params={
+                "start": (today - timedelta(days=60)).isoformat(),
+                "end": (today + timedelta(days=60)).isoformat(),
+            },
+            headers=auth(token),
+        ).json()
+
+        assert created["next_due_date"] >= today.isoformat()
+        assert all(row["due_date"] >= today.isoformat() for row in rows)
+
+    def test_moves_an_amount_to_paid_once_settled(self, client, token):
+        create(client, token, netflix())
+        rows = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+        client.patch(
+            f"/v1/commitments/occurrences/{rows[0]['id']}",
+            json={"status": "paid"},
+            headers=auth(token),
+        )
+
+        body = client.get("/v1/commitments/summary", headers=auth(token)).json()
+        assert body["paid_total"] == "18.99"
+        assert body["pending_total"] == "0.00"
+        assert body["upcoming"] == []
+        assert body["upcoming_total"] == 0
+
+    def test_is_empty_for_a_fresh_account(self, client, token):
+        body = client.get("/v1/commitments/summary", headers=auth(token)).json()
+        assert body["month_total"] == "0.00"
+        assert body["active_count"] == 0
+        assert body["upcoming"] == []

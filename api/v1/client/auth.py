@@ -1,0 +1,104 @@
+from fastapi import APIRouter, Request, status
+
+from api.dependencies import CurrentUserDep, EmailPasswordAuthDep, GoogleAuthDep, UserProfileDep
+from core.exceptions import GoogleAuthUnavailable
+from core.rate_limit import ip_key, limiter
+from models.schemas.auth_schema import (
+    GoogleAuthRequest,
+    GoogleStartRequest,
+    GoogleStartResponse,
+    MessageResponse,
+    RefreshTokenRequest,
+    ResendVerificationRequest,
+    TokenResponse,
+    UserCreate,
+    UserLogin,
+    UserResponse,
+    VerifyEmailRequest,
+)
+from services.authentication.google_auth import authorize_url, is_configured
+from models.schemas.user_schema import ForgotPassword, ResetPassword
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.post("/register", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/hour", key_func=ip_key)
+async def register(request: Request, payload: UserCreate, service: EmailPasswordAuthDep):
+    return await service.register_user(payload)
+
+
+@router.post("/login", response_model=TokenResponse)
+@limiter.limit("10/minute", key_func=ip_key)
+async def login(request: Request, payload: UserLogin, service: EmailPasswordAuthDep):
+    return await service.login_user(payload)
+
+
+@router.post("/google/start", response_model=GoogleStartResponse)
+@limiter.limit("20/minute", key_func=ip_key)
+async def google_start(request: Request, payload: GoogleStartRequest):
+    if not is_configured():
+        raise GoogleAuthUnavailable()
+
+    return GoogleStartResponse(
+        authorization_url=authorize_url(
+            state=payload.state, code_challenge=payload.code_challenge
+        )
+    )
+
+
+@router.post("/google", response_model=TokenResponse)
+@limiter.limit("10/minute", key_func=ip_key)
+async def google_sign_in(request: Request, payload: GoogleAuthRequest, service: GoogleAuthDep):
+    return await service.sign_in(code=payload.code, code_verifier=payload.code_verifier)
+
+
+@router.post("/verify-email", response_model=TokenResponse)
+@limiter.limit("10/minute", key_func=ip_key)
+async def verify_email(request: Request, payload: VerifyEmailRequest, service: EmailPasswordAuthDep):
+    return await service.verify_email(payload.email, payload.code)
+
+
+@router.post("/resend-verification", response_model=MessageResponse)
+@limiter.limit("5/hour", key_func=ip_key)
+async def resend_verification(
+    request: Request, payload: ResendVerificationRequest, service: EmailPasswordAuthDep
+):
+    return await service.resend_verification_email(payload.email)
+
+
+@router.post("/forgot-password", response_model=MessageResponse)
+@limiter.limit("5/hour", key_func=ip_key)
+async def forgot_password(request: Request, payload: ForgotPassword, service: UserProfileDep):
+    return await service.forgot_password(payload)
+
+
+@router.post("/reset-password", response_model=MessageResponse)
+@limiter.limit("10/minute", key_func=ip_key)
+async def reset_password(request: Request, payload: ResetPassword, service: UserProfileDep):
+    return await service.reset_password(payload)
+
+
+@router.post("/refresh", response_model=TokenResponse)
+@limiter.limit("30/minute", key_func=ip_key)
+async def refresh(request: Request, payload: RefreshTokenRequest, service: EmailPasswordAuthDep):
+    return await service.refresh_access_token(payload.refresh_token)
+
+
+@router.post("/logout", response_model=MessageResponse)
+async def logout(payload: RefreshTokenRequest, service: EmailPasswordAuthDep):
+    return await service.logout_user(payload.refresh_token)
+
+
+@router.get("/me", response_model=UserResponse)
+async def me(user: CurrentUserDep):
+    return UserResponse(
+        id=str(user.id),
+        first_name=user.first_name,
+        last_name=user.last_name,
+        email=user.email,
+        is_verified=user.is_verified,
+        role=user.role,
+        avatar_url=user.avatar_url,
+        currency=user.currency,
+    )
