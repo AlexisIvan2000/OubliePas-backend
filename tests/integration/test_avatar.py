@@ -1,11 +1,36 @@
+from io import BytesIO
+
 import pytest
+from PIL import Image
 
 from services.storage import object_storage
 from services.user_profile.avatar_service import MAX_AVATAR_BYTES
 
-JPEG = b"\xff\xd8\xff\xe0" + b"0" * 64
-PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 64
-GIF = b"GIF89a" + b"0" * 64
+
+def encode(fmt: str, size=(120, 90), exif=None) -> bytes:
+    buffer = BytesIO()
+    image = Image.new("RGB", size, (200, 120, 60))
+    if exif is not None:
+        image.save(buffer, format=fmt, exif=exif)
+    else:
+        image.save(buffer, format=fmt)
+    return buffer.getvalue()
+
+
+def gps_photo() -> bytes:
+    exif = Image.Exif()
+    exif[0x010F] = "OubliePhone"
+    gps = exif.get_ifd(0x8825)
+    gps[1] = "N"
+    gps[2] = (45.0, 30.0, 0.0)
+    gps[3] = "W"
+    gps[4] = (73.0, 34.0, 0.0)
+    return encode("JPEG", exif=exif)
+
+
+JPEG = encode("JPEG")
+PNG = encode("PNG")
+GIF = encode("GIF")
 
 AVATAR_URL = "/v1/users/me/avatar"
 
@@ -55,7 +80,11 @@ class TestUpload:
         stored = db("SELECT avatar_key FROM users WHERE email = :e", e=verified["email"])[0][0]
         assert stored.startswith("avatars/")
         assert stored.endswith(".jpg")
-        assert bucket[stored] == (JPEG, "image/jpeg")
+
+        body_bytes, content_type = bucket[stored]
+        assert content_type == "image/jpeg"
+        with Image.open(BytesIO(body_bytes)) as image:
+            assert image.format == "JPEG"
 
     def test_accepts_a_png(self, client, verified, bucket, db):
         response = upload(client, verified["tokens"], PNG, "photo.png", "image/png")
@@ -63,7 +92,11 @@ class TestUpload:
         assert response.status_code == 200
         stored = db("SELECT avatar_key FROM users WHERE email = :e", e=verified["email"])[0][0]
         assert stored.endswith(".png")
-        assert bucket[stored] == (PNG, "image/png")
+
+        body_bytes, content_type = bucket[stored]
+        assert content_type == "image/png"
+        with Image.open(BytesIO(body_bytes)) as image:
+            assert image.format == "PNG"
 
     def test_the_stored_key_never_reuses_the_client_filename(self, client, verified, bucket, db):
         upload(client, verified["tokens"], JPEG, "../../etc/passwd.jpg")
@@ -92,7 +125,7 @@ class TestUpload:
         assert bucket == {}
 
     def test_rejects_a_file_over_five_megabytes(self, client, verified, bucket):
-        oversized = JPEG + b"x" * (MAX_AVATAR_BYTES - len(JPEG) + 1)
+        oversized = JPEG + b"\x00" * (MAX_AVATAR_BYTES - len(JPEG) + 1)
         response = upload(client, verified["tokens"], oversized)
 
         assert response.status_code == 413
@@ -100,11 +133,13 @@ class TestUpload:
         assert bucket == {}
 
     def test_accepts_a_file_at_exactly_five_megabytes(self, client, verified, bucket):
-        limit = JPEG + b"x" * (MAX_AVATAR_BYTES - len(JPEG))
+        limit = JPEG + b"\x00" * (MAX_AVATAR_BYTES - len(JPEG))
+        assert len(limit) == MAX_AVATAR_BYTES
+
         response = upload(client, verified["tokens"], limit)
 
         assert response.status_code == 200
-        assert len(next(iter(bucket.values()))[0]) == MAX_AVATAR_BYTES
+        assert len(next(iter(bucket.values()))[0]) < MAX_AVATAR_BYTES
 
     def test_requires_authentication(self, client, bucket):
         response = client.post(AVATAR_URL, files={"file": ("a.jpg", JPEG, "image/jpeg")})
@@ -123,6 +158,36 @@ class TestUpload:
         assert first not in bucket
         assert second in bucket
         assert len(bucket) == 1
+
+
+class TestNoGpsReachesTheBucket:
+    def test_the_uploaded_photo_really_carries_gps(self):
+        with Image.open(BytesIO(gps_photo())) as image:
+            assert image.getexif().get_ifd(0x8825)[1] == "N"
+
+    def test_what_lands_in_the_bucket_has_none(self, client, verified, bucket, db):
+        response = upload(client, verified["tokens"], gps_photo())
+        assert response.status_code == 200
+
+        stored = db("SELECT avatar_key FROM users WHERE email = :e", e=verified["email"])[0][0]
+        body_bytes, _ = bucket[stored]
+
+        with Image.open(BytesIO(body_bytes)) as image:
+            assert dict(image.getexif()) == {}
+            assert dict(image.getexif().get_ifd(0x8825)) == {}
+
+        assert b"OubliePhone" not in body_bytes
+        assert b"Exif\x00\x00" not in body_bytes
+
+    def test_an_oversized_photo_is_shrunk_before_storage(self, client, verified, bucket, db):
+        source = encode("JPEG", size=(2400, 1600))
+        upload(client, verified["tokens"], source)
+
+        stored = db("SELECT avatar_key FROM users WHERE email = :e", e=verified["email"])[0][0]
+        body_bytes, _ = bucket[stored]
+
+        with Image.open(BytesIO(body_bytes)) as image:
+            assert max(image.size) == 512
 
 
 class TestDelete:

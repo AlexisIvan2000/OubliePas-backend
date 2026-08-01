@@ -1,9 +1,12 @@
 import uuid
 
+from starlette.concurrency import run_in_threadpool
+
 from core import config as settings
 from core.exceptions import AvatarTooLarge, UnsupportedAvatarType, UserNotFound
 from repositories.auth_repository import AuthRepository
 from services.storage.object_storage import ObjectStorage, is_stored_key
+from services.user_profile.image_sanitizer import sanitize_avatar
 
 MAX_AVATAR_BYTES = 5 * 1024 * 1024
 CHUNK_SIZE = 64 * 1024
@@ -60,8 +63,9 @@ class AvatarService:
         if declared and declared not in ALLOWED_CONTENT_TYPES:
             raise UnsupportedAvatarType()
 
-        data = await read_within_limit(upload)
-        content_type, extension = detect_image(data)
+        raw = await read_within_limit(upload)
+        detect_image(raw)
+        data, content_type, extension = await run_in_threadpool(sanitize_avatar, raw)
 
         key = f"{settings.FOLDER_NAME}/{user_id}/{uuid.uuid4().hex}.{extension}"
         await self.storage.put(key, data, content_type)
