@@ -11,6 +11,7 @@ def user_response(user: User) -> UserResponse:
         email=user.email,
         is_verified=user.is_verified,
         role=user.role,
-        avatar_url=public_avatar_url(user.avatar_url),
+        avatar_url=public_avatar_url(user.avatar_key, user.avatar_url),
+        has_custom_avatar=bool(user.avatar_key),
         currency=user.currency,
     )

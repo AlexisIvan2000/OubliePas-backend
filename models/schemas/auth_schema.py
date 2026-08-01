@@ -81,4 +81,5 @@ class UserResponse(BaseModel):
     is_verified: bool
     role: str
     avatar_url: str | None = None
+    has_custom_avatar: bool = False
     currency: str = DEFAULT_CURRENCY

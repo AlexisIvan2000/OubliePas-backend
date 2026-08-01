@@ -52,7 +52,7 @@ class TestUpload:
         assert body["avatar_url"].startswith("https://r2.test/avatars/")
         assert body["avatar_url"].endswith(".jpg?signature=abc")
 
-        stored = db("SELECT avatar_url FROM users WHERE email = :e", e=verified["email"])[0][0]
+        stored = db("SELECT avatar_key FROM users WHERE email = :e", e=verified["email"])[0][0]
         assert stored.startswith("avatars/")
         assert stored.endswith(".jpg")
         assert bucket[stored] == (JPEG, "image/jpeg")
@@ -61,14 +61,14 @@ class TestUpload:
         response = upload(client, verified["tokens"], PNG, "photo.png", "image/png")
 
         assert response.status_code == 200
-        stored = db("SELECT avatar_url FROM users WHERE email = :e", e=verified["email"])[0][0]
+        stored = db("SELECT avatar_key FROM users WHERE email = :e", e=verified["email"])[0][0]
         assert stored.endswith(".png")
         assert bucket[stored] == (PNG, "image/png")
 
     def test_the_stored_key_never_reuses_the_client_filename(self, client, verified, bucket, db):
         upload(client, verified["tokens"], JPEG, "../../etc/passwd.jpg")
 
-        stored = db("SELECT avatar_url FROM users WHERE email = :e", e=verified["email"])[0][0]
+        stored = db("SELECT avatar_key FROM users WHERE email = :e", e=verified["email"])[0][0]
         assert ".." not in stored
         assert "passwd" not in stored
 
@@ -114,10 +114,10 @@ class TestUpload:
 
     def test_replacing_removes_the_previous_object(self, client, verified, bucket, db):
         upload(client, verified["tokens"], JPEG)
-        first = db("SELECT avatar_url FROM users WHERE email = :e", e=verified["email"])[0][0]
+        first = db("SELECT avatar_key FROM users WHERE email = :e", e=verified["email"])[0][0]
 
         upload(client, verified["tokens"], PNG, "photo.png", "image/png")
-        second = db("SELECT avatar_url FROM users WHERE email = :e", e=verified["email"])[0][0]
+        second = db("SELECT avatar_key FROM users WHERE email = :e", e=verified["email"])[0][0]
 
         assert first != second
         assert first not in bucket
@@ -126,16 +126,18 @@ class TestUpload:
 
 
 class TestDelete:
-    def test_removes_the_object_and_clears_the_column(self, client, verified, bucket, db):
+    def test_removes_the_object_from_the_bucket(self, client, verified, bucket, db):
         upload(client, verified["tokens"], JPEG)
-        key = db("SELECT avatar_url FROM users WHERE email = :e", e=verified["email"])[0][0]
+        key = db("SELECT avatar_key FROM users WHERE email = :e", e=verified["email"])[0][0]
+        assert key in bucket
 
         response = client.delete(AVATAR_URL, headers=auth(verified["tokens"]))
 
         assert response.status_code == 200
         assert response.json()["avatar_url"] is None
-        assert db("SELECT avatar_url FROM users WHERE email = :e", e=verified["email"]) == [(None,)]
+        assert db("SELECT avatar_key FROM users WHERE email = :e", e=verified["email"]) == [(None,)]
         assert key not in bucket
+        assert bucket == {}
 
     def test_is_idempotent_when_there_is_no_photo(self, client, verified, bucket):
         response = client.delete(AVATAR_URL, headers=auth(verified["tokens"]))
@@ -147,16 +149,59 @@ class TestDelete:
         assert client.delete(AVATAR_URL).status_code == 401
 
 
-class TestExternalUrls:
-    def test_a_google_photo_is_returned_untouched(self, client, verified, bucket):
+class TestHasCustomAvatar:
+    def test_false_for_a_fresh_account(self, client, verified, bucket):
+        response = client.get("/v1/users/me", headers=auth(verified["tokens"]))
+
+        assert response.json()["has_custom_avatar"] is False
+
+    def test_false_when_only_a_google_photo_is_set(self, client, verified, bucket):
         google = "https://lh3.googleusercontent.com/a/portrait.jpg"
         client.patch("/v1/users/me", headers=auth(verified["tokens"]), json={"avatar_url": google})
 
         response = client.get("/v1/users/me", headers=auth(verified["tokens"]))
 
-        assert response.json()["avatar_url"] == google
+        assert response.json()["has_custom_avatar"] is False
 
-    def test_deleting_a_google_photo_touches_no_object(self, client, verified, bucket):
+    def test_true_after_an_upload(self, client, verified, bucket):
+        assert upload(client, verified["tokens"], JPEG).json()["has_custom_avatar"] is True
+
+    def test_false_again_after_deleting(self, client, verified, bucket):
+        upload(client, verified["tokens"], JPEG)
+        response = client.delete(AVATAR_URL, headers=auth(verified["tokens"]))
+
+        assert response.json()["has_custom_avatar"] is False
+
+
+class TestGooglePhotoSurvives:
+    def test_uploading_hides_the_google_photo_without_erasing_it(
+        self, client, verified, bucket, db
+    ):
+        google = "https://lh3.googleusercontent.com/a/portrait.jpg"
+        client.patch("/v1/users/me", headers=auth(verified["tokens"]), json={"avatar_url": google})
+
+        response = upload(client, verified["tokens"], JPEG)
+
+        assert response.json()["avatar_url"].startswith("https://r2.test/")
+        assert db("SELECT avatar_url FROM users WHERE email = :e", e=verified["email"]) == [
+            (google,)
+        ]
+
+    def test_deleting_the_upload_brings_the_google_photo_back(self, client, verified, bucket):
+        google = "https://lh3.googleusercontent.com/a/portrait.jpg"
+        client.patch("/v1/users/me", headers=auth(verified["tokens"]), json={"avatar_url": google})
+        upload(client, verified["tokens"], JPEG)
+
+        response = client.delete(AVATAR_URL, headers=auth(verified["tokens"]))
+
+        assert response.status_code == 200
+        assert response.json()["avatar_url"] == google
+        assert response.json()["has_custom_avatar"] is False
+        assert bucket == {}
+
+    def test_deleting_without_an_upload_leaves_the_google_photo_alone(
+        self, client, verified, bucket
+    ):
         google = "https://lh3.googleusercontent.com/a/portrait.jpg"
         client.patch("/v1/users/me", headers=auth(verified["tokens"]), json={"avatar_url": google})
         bucket["sentinel"] = (b"", "")
@@ -164,8 +209,15 @@ class TestExternalUrls:
         response = client.delete(AVATAR_URL, headers=auth(verified["tokens"]))
 
         assert response.status_code == 200
-        assert response.json()["avatar_url"] is None
+        assert response.json()["avatar_url"] == google
         assert "sentinel" in bucket
+
+    def test_an_account_without_google_falls_back_to_nothing(self, client, verified, bucket):
+        upload(client, verified["tokens"], JPEG)
+
+        response = client.delete(AVATAR_URL, headers=auth(verified["tokens"]))
+
+        assert response.json()["avatar_url"] is None
 
     def test_auth_me_signs_the_key_the_same_way(self, client, verified, bucket, db):
         upload(client, verified["tokens"], JPEG)
@@ -186,3 +238,13 @@ class TestStorageNotConfigured:
 
         assert response.status_code == 200
         assert response.json()["avatar_url"] is None
+
+    def test_it_falls_back_to_the_google_photo(self, client, verified, bucket, monkeypatch):
+        google = "https://lh3.googleusercontent.com/a/portrait.jpg"
+        client.patch("/v1/users/me", headers=auth(verified["tokens"]), json={"avatar_url": google})
+        upload(client, verified["tokens"], JPEG)
+        monkeypatch.setattr(object_storage, "is_configured", lambda: False)
+
+        response = client.get("/v1/users/me", headers=auth(verified["tokens"]))
+
+        assert response.json()["avatar_url"] == google

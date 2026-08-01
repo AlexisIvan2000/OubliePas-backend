@@ -66,8 +66,8 @@ class AvatarService:
         key = f"{settings.FOLDER_NAME}/{user_id}/{uuid.uuid4().hex}.{extension}"
         await self.storage.put(key, data, content_type)
 
-        previous = db_user.avatar_url
-        updated = await self.repo.update_user(user_id, {"avatar_url": key})
+        previous = db_user.avatar_key
+        updated = await self.repo.update_user(user_id, {"avatar_key": key})
 
         if is_stored_key(previous) and previous != key:
             await self.storage.delete(previous)
@@ -76,12 +76,12 @@ class AvatarService:
 
     async def remove(self, user_id: str):
         db_user = await self._get_user(user_id)
-        previous = db_user.avatar_url
+        previous = db_user.avatar_key
 
         if previous is None:
             return db_user
 
-        updated = await self.repo.update_user(user_id, {"avatar_url": None})
+        updated = await self.repo.update_user(user_id, {"avatar_key": None})
 
         if is_stored_key(previous):
             await self.storage.delete(previous)

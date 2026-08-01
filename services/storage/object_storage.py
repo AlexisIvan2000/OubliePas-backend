@@ -75,14 +75,16 @@ class ObjectStorage:
 storage = ObjectStorage()
 
 
-def public_avatar_url(value: str | None) -> str | None:
-    if not value:
-        return None
-    if not is_stored_key(value):
-        return value
+def signed_url(key: str) -> str | None:
     if not is_configured():
         return None
     try:
-        return storage.presign(value)
+        return storage.presign(key)
     except (BotoCoreError, ClientError, StorageUnavailable):
         return None
+
+
+def public_avatar_url(uploaded_key: str | None, fallback_url: str | None) -> str | None:
+    if uploaded_key:
+        return signed_url(uploaded_key) or fallback_url
+    return fallback_url or None
