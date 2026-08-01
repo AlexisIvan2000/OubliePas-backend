@@ -237,3 +237,9 @@ class StorageUnavailable(AppException):
     status_code = 503
     code = "STORAGE_UNAVAILABLE"
     message = "File storage is not configured"
+
+
+class InvalidDeletionConfirmation(AppException):
+    status_code = 400
+    code = "INVALID_DELETION_CONFIRMATION"
+    message = "The confirmation does not match"

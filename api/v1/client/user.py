@@ -16,6 +16,7 @@ from models.schemas.user_schema import (
     ChangeEmail,
     ChangePassword,
     ConfirmEmailChange,
+    DeleteAccount,
     SetPassword,
     UpdateProfile,
 )
@@ -56,6 +57,17 @@ async def upload_avatar(
 async def delete_avatar(request: Request, user: CurrentUserDep, service: AvatarServiceDep):
     updated = await service.remove(str(user.id))
     return user_response(updated)
+
+
+@router.post("/me/delete", response_model=MessageResponse)
+@limiter.limit("5/hour")
+async def delete_account(
+    request: Request,
+    payload: DeleteAccount,
+    user: CurrentUserDep,
+    service: UserProfileDep,
+):
+    return await service.delete_account(str(user.id), payload)
 
 
 @router.patch("/me", response_model=MessageResponse)

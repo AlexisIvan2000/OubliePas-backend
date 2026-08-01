@@ -13,5 +13,6 @@ def user_response(user: User) -> UserResponse:
         role=user.role,
         avatar_url=public_avatar_url(user.avatar_key, user.avatar_url),
         has_custom_avatar=bool(user.avatar_key),
+        has_password=bool(user.password_hash),
         currency=user.currency,
     )

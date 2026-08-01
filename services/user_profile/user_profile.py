@@ -7,6 +7,7 @@ from core.exceptions import (
     GoogleOnlyAccount,
     IncorrectCurrentPassword,
     IncorrectPassword,
+    InvalidDeletionConfirmation,
     InvalidOrExpiredResetCode,
     InvalidResetCode,
     InvalidVerificationCode,
@@ -28,6 +29,7 @@ from models.schemas.user_schema import (
     ChangeEmail,
     ChangePassword,
     ConfirmEmailChange,
+    DeleteAccount,
     ForgotPassword,
     ResetPassword,
     SetPassword,
@@ -36,16 +38,29 @@ from models.schemas.user_schema import (
 from repositories.auth_repository import AuthRepository
 from repositories.refresh_token_repository import RefreshTokenRepository
 from services.emailing.otp_service import OtpService
+from services.storage.object_storage import ObjectStorage, is_stored_key
 
 MAX_VERIFICATION_ATTEMPTS = 5
 CLEARABLE_PROFILE_FIELDS = frozenset({"last_name", "avatar_url"})
 
 
+def confirmation_matches(confirmation: str, email: str) -> bool:
+    value = confirmation.strip()
+    return bool(value) and normalize_email(value) == email
+
+
 class UserProfile:
-    def __init__(self, auth_repo: AuthRepository, refresh_token_repo: RefreshTokenRepository, otp_service: OtpService):
+    def __init__(
+        self,
+        auth_repo: AuthRepository,
+        refresh_token_repo: RefreshTokenRepository,
+        otp_service: OtpService,
+        storage: ObjectStorage,
+    ):
         self.repo = auth_repo
         self.rt_repo = refresh_token_repo
         self.otp_svc = otp_service
+        self.storage = storage
 
     async def _get_user(self, user_id: str):
         db_user = await self.repo.get_user_by_id(user_id)
@@ -197,3 +212,23 @@ class UserProfile:
         })
 
         return {"message": "Email changed successfully"}
+
+    async def delete_account(self, user_id: str, data: DeleteAccount):
+        db_user = await self._get_user(user_id)
+
+        if db_user.password_hash:
+            if not data.password or not Security.verify_password(
+                db_user.password_hash, data.password
+            ):
+                raise IncorrectPassword()
+        elif not confirmation_matches(data.confirmation or "", db_user.email):
+            raise InvalidDeletionConfirmation()
+
+        avatar_key = db_user.avatar_key
+
+        await self.repo.delete_user(user_id)
+
+        if is_stored_key(avatar_key):
+            await self.storage.delete(avatar_key)
+
+        return {"message": "Account deleted successfully"}

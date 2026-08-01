@@ -82,3 +82,8 @@ class ChangeEmail(BaseModel):
 
 class ConfirmEmailChange(BaseModel):
     code: str = Field(pattern=r"^\d{6}$")
+
+
+class DeleteAccount(BaseModel):
+    password: str | None = Field(default=None, max_length=128)
+    confirmation: str | None = Field(default=None, max_length=255)

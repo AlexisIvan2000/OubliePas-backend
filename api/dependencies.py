@@ -67,7 +67,7 @@ def get_user_profile(
     rt_repo: RefreshTokenRepoDep,
     otp_service: OtpServiceDep,
 ) -> UserProfile:
-    return UserProfile(auth_repo, rt_repo, otp_service)
+    return UserProfile(auth_repo, rt_repo, otp_service, storage)
 
 
 UserProfileDep = Annotated[UserProfile, Depends(get_user_profile)]
