@@ -31,7 +31,9 @@ class AuthRepository:
             update(User).where(User.id == user_id).values(**data)
         )
         await self.session.flush()
-        result = await self.session.execute(select(User).where(User.id == user_id))
+        result = await self.session.execute(
+            select(User).where(User.id == user_id).execution_options(populate_existing=True)
+        )
         return result.scalar_one()
 
     async def update_verification_status(self, user_id: str) -> User:

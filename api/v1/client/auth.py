@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, status
 
 from api.dependencies import CurrentUserDep, EmailPasswordAuthDep, GoogleAuthDep, UserProfileDep
+from api.responses import user_response
 from core.exceptions import GoogleAuthUnavailable
 from core.rate_limit import ip_key, limiter
 from models.schemas.auth_schema import (
@@ -92,13 +93,4 @@ async def logout(payload: RefreshTokenRequest, service: EmailPasswordAuthDep):
 
 @router.get("/me", response_model=UserResponse)
 async def me(user: CurrentUserDep):
-    return UserResponse(
-        id=str(user.id),
-        first_name=user.first_name,
-        last_name=user.last_name,
-        email=user.email,
-        is_verified=user.is_verified,
-        role=user.role,
-        avatar_url=user.avatar_url,
-        currency=user.currency,
-    )
+    return user_response(user)

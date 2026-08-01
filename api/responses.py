@@ -1,0 +1,16 @@
+from models.db import User
+from models.schemas.auth_schema import UserResponse
+from services.storage.object_storage import public_avatar_url
+
+
+def user_response(user: User) -> UserResponse:
+    return UserResponse(
+        id=str(user.id),
+        first_name=user.first_name,
+        last_name=user.last_name,
+        email=user.email,
+        is_verified=user.is_verified,
+        role=user.role,
+        avatar_url=public_avatar_url(user.avatar_url),
+        currency=user.currency,
+    )

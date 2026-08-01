@@ -213,3 +213,27 @@ class InvalidDateRange(AppException):
     status_code = 400
     code = "INVALID_DATE_RANGE"
     message = "The end date must be on or after the start date"
+
+
+class UnsupportedAvatarType(AppException):
+    status_code = 415
+    code = "UNSUPPORTED_AVATAR_TYPE"
+    message = "Only JPEG and PNG images are allowed"
+
+
+class AvatarTooLarge(AppException):
+    status_code = 413
+    code = "AVATAR_TOO_LARGE"
+    message = "The image must not exceed 5 MB"
+
+
+class AvatarUploadFailed(AppException):
+    status_code = 502
+    code = "AVATAR_UPLOAD_FAILED"
+    message = "The image could not be stored, please try again"
+
+
+class StorageUnavailable(AppException):
+    status_code = 503
+    code = "STORAGE_UNAVAILABLE"
+    message = "File storage is not configured"

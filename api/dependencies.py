@@ -16,6 +16,8 @@ from services.authentication.google_auth import GoogleAuth, GoogleTokenClient
 from services.commitments.commitment_service import CommitmentService
 from services.commitments.occurrence_generator import OccurrenceGenerator
 from services.emailing.otp_service import OtpService
+from services.storage.object_storage import storage
+from services.user_profile.avatar_service import AvatarService
 from services.user_profile.user_profile import UserProfile
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -69,6 +71,13 @@ def get_user_profile(
 
 
 UserProfileDep = Annotated[UserProfile, Depends(get_user_profile)]
+
+
+def get_avatar_service(auth_repo: AuthRepoDep) -> AvatarService:
+    return AvatarService(auth_repo, storage)
+
+
+AvatarServiceDep = Annotated[AvatarService, Depends(get_avatar_service)]
 
 
 def get_commitment_repository(session: SessionDep) -> CommitmentRepository:
