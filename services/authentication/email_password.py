@@ -44,10 +44,12 @@ class EmailPasswordAuth:
         if await self.repo.get_user_by_email(email):
             raise EmailAlreadyRegistered()
 
+        password_hash = await Security.hash_password_async(user.password)
+
         new_user = await self.repo.create_user({
             "first_name": user.first_name,
             "email": email,
-            "password_hash": Security.hash_password(user.password),
+            "password_hash": password_hash,
             "currency": user.currency,
         })
         await self.otp_svc.send_verification_otp(email, str(new_user.id))
@@ -57,10 +59,10 @@ class EmailPasswordAuth:
     async def login_user(self, user: UserLogin):
         db_user = await self.repo.get_user_by_email(normalize_email(user.email))
         if not db_user:
-            Security.dummy_verify()
+            await Security.dummy_verify_async()
             raise InvalidCredentials()
 
-        if not Security.verify_password(db_user.password_hash, user.password):
+        if not await Security.verify_password_async(db_user.password_hash, user.password):
             raise InvalidCredentials()
 
         if not db_user.is_active:
@@ -71,7 +73,7 @@ class EmailPasswordAuth:
 
         if Security.needs_rehash(db_user.password_hash):
             await self.repo.update_user(str(db_user.id), {
-                "password_hash": Security.hash_password(user.password),
+                "password_hash": await Security.hash_password_async(user.password),
             })
 
         return await self._issue_tokens(db_user)

@@ -1,15 +1,15 @@
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Request, Response, status
 
 from api.dependencies import CurrentUserDep, EmailPasswordAuthDep, GoogleAuthDep, UserProfileDep
 from api.responses import user_response
-from core.exceptions import GoogleAuthUnavailable
+from core.cookies import clear_refresh_cookie, issue_session, read_refresh_cookie
+from core.exceptions import GoogleAuthUnavailable, InvalidRefreshToken
 from core.rate_limit import ip_key, limiter
 from models.schemas.auth_schema import (
     GoogleAuthRequest,
     GoogleStartRequest,
     GoogleStartResponse,
     MessageResponse,
-    RefreshTokenRequest,
     ResendVerificationRequest,
     TokenResponse,
     UserCreate,
@@ -31,8 +31,10 @@ async def register(request: Request, payload: UserCreate, service: EmailPassword
 
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("10/minute", key_func=ip_key)
-async def login(request: Request, payload: UserLogin, service: EmailPasswordAuthDep):
-    return await service.login_user(payload)
+async def login(
+    request: Request, response: Response, payload: UserLogin, service: EmailPasswordAuthDep
+):
+    return issue_session(response, await service.login_user(payload))
 
 
 @router.post("/google/start", response_model=GoogleStartResponse)
@@ -50,14 +52,23 @@ async def google_start(request: Request, payload: GoogleStartRequest):
 
 @router.post("/google", response_model=TokenResponse)
 @limiter.limit("10/minute", key_func=ip_key)
-async def google_sign_in(request: Request, payload: GoogleAuthRequest, service: GoogleAuthDep):
-    return await service.sign_in(code=payload.code, code_verifier=payload.code_verifier)
+async def google_sign_in(
+    request: Request, response: Response, payload: GoogleAuthRequest, service: GoogleAuthDep
+):
+    tokens = await service.sign_in(code=payload.code, code_verifier=payload.code_verifier)
+    return issue_session(response, tokens)
 
 
 @router.post("/verify-email", response_model=TokenResponse)
 @limiter.limit("10/minute", key_func=ip_key)
-async def verify_email(request: Request, payload: VerifyEmailRequest, service: EmailPasswordAuthDep):
-    return await service.verify_email(payload.email, payload.code)
+async def verify_email(
+    request: Request,
+    response: Response,
+    payload: VerifyEmailRequest,
+    service: EmailPasswordAuthDep,
+):
+    tokens = await service.verify_email(payload.email, payload.code)
+    return issue_session(response, tokens)
 
 
 @router.post("/resend-verification", response_model=MessageResponse)
@@ -82,13 +93,20 @@ async def reset_password(request: Request, payload: ResetPassword, service: User
 
 @router.post("/refresh", response_model=TokenResponse)
 @limiter.limit("30/minute", key_func=ip_key)
-async def refresh(request: Request, payload: RefreshTokenRequest, service: EmailPasswordAuthDep):
-    return await service.refresh_access_token(payload.refresh_token)
+async def refresh(request: Request, response: Response, service: EmailPasswordAuthDep):
+    token = read_refresh_cookie(request)
+    if not token:
+        raise InvalidRefreshToken()
+    return issue_session(response, await service.refresh_access_token(token))
 
 
 @router.post("/logout", response_model=MessageResponse)
-async def logout(payload: RefreshTokenRequest, service: EmailPasswordAuthDep):
-    return await service.logout_user(payload.refresh_token)
+async def logout(request: Request, response: Response, service: EmailPasswordAuthDep):
+    token = read_refresh_cookie(request)
+    clear_refresh_cookie(response)
+    if not token:
+        return {"message": "User logged out successfully"}
+    return await service.logout_user(token)
 
 
 @router.get("/me", response_model=UserResponse)

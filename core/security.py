@@ -5,6 +5,7 @@ import uuid
 from argon2 import PasswordHasher
 from argon2.exceptions import Argon2Error, InvalidHashError
 from jose import jwt, JWTError
+from starlette.concurrency import run_in_threadpool
 from datetime import datetime, timedelta, timezone
 from core.config import JWT_SECRET_KEY, JWT_ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS
 
@@ -35,6 +36,18 @@ class Security:
             ph.verify(_DUMMY_HASH, "wrong")
         except (Argon2Error, InvalidHashError):
             pass
+
+    @staticmethod
+    async def hash_password_async(password: str) -> str:
+        return await run_in_threadpool(Security.hash_password, password)
+
+    @staticmethod
+    async def verify_password_async(hashed: str | None, plain: str) -> bool:
+        return await run_in_threadpool(Security.verify_password, hashed, plain)
+
+    @staticmethod
+    async def dummy_verify_async() -> None:
+        await run_in_threadpool(Security.dummy_verify)
 
     @staticmethod
     def needs_rehash(hashed: str) -> bool:

@@ -14,7 +14,7 @@ def _require(name: str) -> str:
 
 JWT_SECRET_KEY = _require("JWT_SECRET_KEY")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "30"))
 
 _raw_db_url = os.getenv("DB_URL") or os.getenv("DATABASE_URL")
@@ -48,6 +48,12 @@ CORS_ORIGINS = [
 _DEV_ORIGIN_REGEX = r"^http://(localhost|127\.0\.0\.1)(:\d+)?$"
 
 CORS_ORIGIN_REGEX = os.getenv("CORS_ORIGIN_REGEX") or (_DEV_ORIGIN_REGEX if DEBUG else None)
+
+REFRESH_COOKIE_NAME = os.getenv("REFRESH_COOKIE_NAME", "oubliepas_refresh")
+REFRESH_COOKIE_PATH = "/v1/auth"
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false" if DEBUG else "true").lower() in ("1", "true", "yes")
+COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "lax").lower()
+COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN") or None
 
 REDIS_URL = os.getenv("REDIS_URL")
 

@@ -87,14 +87,14 @@ class UserProfile:
         if not db_user.password_hash:
             raise GoogleOnlyAccount()
 
-        if not Security.verify_password(db_user.password_hash, data.current_password):
+        if not await Security.verify_password_async(db_user.password_hash, data.current_password):
             raise IncorrectCurrentPassword()
 
-        if Security.verify_password(db_user.password_hash, data.new_password):
+        if await Security.verify_password_async(db_user.password_hash, data.new_password):
             raise SamePasswordAsBefore()
 
         await self.repo.update_user(user_id, {
-            "password_hash": Security.hash_password(data.new_password),
+            "password_hash": await Security.hash_password_async(data.new_password),
         })
         await self.rt_repo.revoke_all_for_user(user_id)
 
@@ -107,7 +107,7 @@ class UserProfile:
             raise PasswordAlreadySet()
 
         await self.repo.update_user(user_id, {
-            "password_hash": Security.hash_password(data.new_password),
+            "password_hash": await Security.hash_password_async(data.new_password),
         })
 
         return {"message": "Password set successfully"}
@@ -145,10 +145,12 @@ class UserProfile:
         if not Security.verify_otp(data.code, db_user.reset_code_hash):
             raise InvalidResetCode()
 
-        if Security.verify_password(db_user.password_hash, data.new_password):
+        if await Security.verify_password_async(db_user.password_hash, data.new_password):
             raise SamePasswordAsBefore()
 
-        await self.repo.update_password(user_id, Security.hash_password(data.new_password))
+        await self.repo.update_password(
+            user_id, await Security.hash_password_async(data.new_password)
+        )
         await self.rt_repo.revoke_all_for_user(user_id)
 
         return {"message": "Password reset successfully"}
@@ -159,7 +161,7 @@ class UserProfile:
         if not db_user.password_hash:
             raise GoogleOnlyAccount()
 
-        if not Security.verify_password(db_user.password_hash, data.password):
+        if not await Security.verify_password_async(db_user.password_hash, data.password):
             raise IncorrectPassword()
 
         new_email = normalize_email(data.new_email)
@@ -217,7 +219,7 @@ class UserProfile:
         db_user = await self._get_user(user_id)
 
         if db_user.password_hash:
-            if not data.password or not Security.verify_password(
+            if not data.password or not await Security.verify_password_async(
                 db_user.password_hash, data.password
             ):
                 raise IncorrectPassword()

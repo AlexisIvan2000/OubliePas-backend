@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
+from api.middlewares.security_headers import SecurityHeadersMiddleware
 from api.v1.router import api_router
 from core.config import CORS_ORIGIN_REGEX, CORS_ORIGINS, DEBUG, TRUSTED_PROXY_COUNT
 from core.database import dispose_engine
@@ -28,6 +29,7 @@ app = FastAPI(
 
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
