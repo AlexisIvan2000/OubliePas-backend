@@ -8,6 +8,7 @@ from core.config import GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_
 from core.exceptions import (
     AccountDisabled,
     DisposableEmailNotAllowed,
+    GoogleAccountAlreadyLinked,
     GoogleAuthFailed,
     GoogleAuthUnavailable,
     GoogleEmailNotVerified,
@@ -122,6 +123,9 @@ class GoogleAuth:
         if db_user:
             if not db_user.is_active:
                 raise AccountDisabled()
+
+            if db_user.google_sub and db_user.google_sub != google_sub:
+                raise GoogleAccountAlreadyLinked()
 
             updates = {"google_sub": google_sub}
             if not db_user.is_verified:

@@ -243,3 +243,9 @@ class InvalidDeletionConfirmation(AppException):
     status_code = 400
     code = "INVALID_DELETION_CONFIRMATION"
     message = "The confirmation does not match"
+
+
+class GoogleAccountAlreadyLinked(AppException):
+    status_code = 409
+    code = "GOOGLE_ACCOUNT_ALREADY_LINKED"
+    message = "This email address is already linked to a different Google account"
