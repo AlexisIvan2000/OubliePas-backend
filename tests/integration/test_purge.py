@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 
+from core.config import REFRESH_COOKIE_NAME, REFRESH_COOKIE_PATH
 from repositories.refresh_token_repository import RefreshTokenRepository
 from tests.conftest import TestSessionLocal
 
@@ -38,22 +39,27 @@ class TestPurgeExpired:
         assert count(db) == 1
 
     def test_keeps_revoked_but_unexpired_tokens(self, client, verified, db):
-        client.post("/v1/auth/logout", json={"refresh_token": verified["tokens"]["refresh_token"]})
+        client.post("/v1/auth/logout")
         assert db("select count(*) from refresh_tokens where revoked = true") == [(1,)]
         assert purge() == 0
         assert count(db) == 1
 
     def test_reuse_detection_survives_a_purge(self, client, verified):
-        old = verified["tokens"]["refresh_token"]
-        fresh = client.post("/v1/auth/refresh", json={"refresh_token": old}).json()["refresh_token"]
+        old = client.cookies.get(REFRESH_COOKIE_NAME)
+        client.post("/v1/auth/refresh")
+        fresh = client.cookies.get(REFRESH_COOKIE_NAME)
 
         purge()
 
-        replay = client.post("/v1/auth/refresh", json={"refresh_token": old})
+        client.cookies.clear()
+        client.cookies.set(REFRESH_COOKIE_NAME, old, path=REFRESH_COOKIE_PATH)
+        replay = client.post("/v1/auth/refresh")
         assert replay.status_code == 401
         assert replay.json()["detail"]["code"] == "TOKEN_REUSE_DETECTED"
 
-        after = client.post("/v1/auth/refresh", json={"refresh_token": fresh})
+        client.cookies.clear()
+        client.cookies.set(REFRESH_COOKIE_NAME, fresh, path=REFRESH_COOKIE_PATH)
+        after = client.post("/v1/auth/refresh")
         assert after.status_code == 401
 
     def test_purging_twice_is_harmless(self, client, verified, db):

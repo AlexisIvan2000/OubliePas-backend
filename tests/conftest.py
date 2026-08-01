@@ -157,4 +157,8 @@ def verified(client, registered):
         json={"email": registered["email"], "code": registered["code"]},
     )
     assert response.status_code == 200
-    return {**registered, "tokens": response.json()}
+    return {
+        **registered,
+        "tokens": response.json(),
+        "set_cookie": response.headers.get("set-cookie", ""),
+    }

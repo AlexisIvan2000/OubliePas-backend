@@ -1,5 +1,7 @@
 import pytest
 
+from core.config import REFRESH_COOKIE_NAME
+
 pytestmark = pytest.mark.integration
 
 
@@ -35,7 +37,7 @@ def test_malformed_token_is_rejected(client, token):
 
 
 def test_refresh_token_is_not_accepted(client, verified):
-    response = client.get("/v1/auth/me", headers=auth(verified["tokens"]["refresh_token"]))
+    response = client.get("/v1/auth/me", headers=auth(client.cookies.get(REFRESH_COOKIE_NAME)))
     assert response.status_code == 401
     assert response.json()["detail"]["code"] == "INVALID_ACCESS_TOKEN"
 

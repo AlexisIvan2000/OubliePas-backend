@@ -4,7 +4,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from jose import jwt
 
-from core.config import GOOGLE_CLIENT_ID
+from core.config import GOOGLE_CLIENT_ID, REFRESH_COOKIE_NAME, REFRESH_COOKIE_PATH
 from services.authentication.google_auth import GoogleTokenClient
 
 pytestmark = pytest.mark.integration
@@ -139,15 +139,20 @@ class TestReturningUser:
         second = sign_in(client).json()
 
         assert db("SELECT count(*) FROM users") == [(1,)]
-        assert first["refresh_token"] != second["refresh_token"]
+        assert first["access_token"] and second["access_token"]
         assert db("SELECT count(*) FROM refresh_tokens") == [(2,)]
 
     def test_both_sessions_stay_usable(self, client, google):
-        first = sign_in(client).json()["refresh_token"]
-        second = sign_in(client).json()["refresh_token"]
+        sign_in(client)
+        first = client.cookies.get(REFRESH_COOKIE_NAME)
+        sign_in(client)
+        second = client.cookies.get(REFRESH_COOKIE_NAME)
+        assert first != second
 
-        assert client.post("/v1/auth/refresh", json={"refresh_token": first}).status_code == 200
-        assert client.post("/v1/auth/refresh", json={"refresh_token": second}).status_code == 200
+        for token in (first, second):
+            client.cookies.clear()
+            client.cookies.set(REFRESH_COOKIE_NAME, token, path=REFRESH_COOKIE_PATH)
+            assert client.post("/v1/auth/refresh").status_code == 200
 
     def test_follows_the_subject_when_the_google_email_changes(self, client, google, db):
         sign_in(client)

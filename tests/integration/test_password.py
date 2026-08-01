@@ -43,9 +43,7 @@ class TestChangePassword:
             json={"current_password": verified["password"], "new_password": NEW_PASSWORD},
         )
         assert db("select count(*) from refresh_tokens where revoked = false") == [(0,)]
-        response = client.post(
-            "/v1/auth/refresh", json={"refresh_token": verified["tokens"]["refresh_token"]}
-        )
+        response = client.post("/v1/auth/refresh")
         assert response.status_code == 401
 
     def test_wrong_current_password_is_rejected(self, client, token):

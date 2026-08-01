@@ -1,5 +1,7 @@
 import pytest
 
+from core.config import REFRESH_COOKIE_NAME
+
 pytestmark = pytest.mark.integration
 
 
@@ -10,7 +12,9 @@ def test_login_returns_tokens(client, verified):
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["access_token"] and body["refresh_token"]
+    assert body["access_token"]
+    assert "refresh_token" not in body
+    assert REFRESH_COOKIE_NAME in response.headers.get("set-cookie", "")
     assert body["token_type"] == "bearer"
     assert body["role"] == "user"
 
@@ -21,7 +25,8 @@ def test_login_stores_a_hashed_refresh_token(client, verified, db):
         json={"email": verified["email"], "password": verified["password"]},
     )
     [(stored,)] = db("select token_hash from refresh_tokens order by created_at desc limit 1")
-    assert stored != response.json()["refresh_token"]
+    assert stored != client.cookies.get(REFRESH_COOKIE_NAME)
+    assert len(stored) == 64
     assert len(stored) == 64
 
 

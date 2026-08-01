@@ -233,10 +233,7 @@ class TestAfterwards:
     def test_the_refresh_token_no_longer_works(self, client, verified):
         confirm(client, verified["tokens"], password=verified["password"])
 
-        response = client.post(
-            "/v1/auth/refresh",
-            json={"refresh_token": verified["tokens"]["refresh_token"]},
-        )
+        response = client.post("/v1/auth/refresh")
 
         assert response.status_code == 401
 

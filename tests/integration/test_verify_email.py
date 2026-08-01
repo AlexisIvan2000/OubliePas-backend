@@ -1,5 +1,7 @@
 import pytest
 
+from core.config import REFRESH_COOKIE_NAME
+
 pytestmark = pytest.mark.integration
 
 
@@ -10,7 +12,9 @@ def test_correct_code_returns_tokens(client, registered):
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["access_token"] and body["refresh_token"]
+    assert body["access_token"]
+    assert "refresh_token" not in body
+    assert REFRESH_COOKIE_NAME in response.headers.get("set-cookie", "")
     assert body["token_type"] == "bearer"
 
 
