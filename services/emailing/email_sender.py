@@ -17,6 +17,14 @@ def _plain_text_to_html_paragraphs(text: str) -> str:
     )
 
 
+def _due_label(days_left: int) -> str:
+    if days_left <= 0:
+        return "aujourd'hui"
+    if days_left == 1:
+        return "demain"
+    return f"dans {days_left} jours"
+
+
 class EmailSender:
 
     def __init__(self):
@@ -91,6 +99,47 @@ class EmailSender:
             "to": [to],
             "subject": subject,
             "html": html_template,
+        }
+        return await self._send(params)
+
+    async def send_reminder_email(
+        self, to: str, *, first_name: str, items: list, currency: str
+    ) -> Dict:
+        count = len(items)
+        subject = f"{count} échéance{'s' if count > 1 else ''} à venir"
+
+        rows = "".join(
+            f"""
+                        <tr>
+                            <td style="padding: 12px 0; border-bottom: 1px solid #eee;">
+                                <strong style="color: #333;">{html.escape(str(item["title"]))}</strong><br/>
+                                <span style="color: #888; font-size: 13px;">{_due_label(item["days_left"])} &middot; {item["due_date"].strftime("%d/%m/%Y")}</span>
+                            </td>
+                            <td style="padding: 12px 0; border-bottom: 1px solid #eee; text-align: right; white-space: nowrap; color: #333;">
+                                {item["amount"]:.2f} {html.escape(currency)}
+                            </td>
+                        </tr>
+            """
+            for item in items
+        )
+
+        body = f"""
+                <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px; color: #333;">
+                    <h2 style="color: #0D9488; text-align: center; font-size: 22px; margin-top: 0;">OubliePas</h2>
+                    <p>Bonjour {html.escape(first_name)},</p>
+                    <p>Voici {'vos' if count > 1 else 'votre'} prochaine{'s' if count > 1 else ''} échéance{'s' if count > 1 else ''} :</p>
+                    <table style="width: 100%; border-collapse: collapse; margin: 24px 0;">{rows}</table>
+                    <p style="color: #888; font-size: 12px; text-align: center; margin: 0;">
+                        Vous recevez ce message parce que les rappels sont actifs sur ces engagements.<br/>
+                        Ne pas répondre directement à cet email.
+                    </p>
+                </div>
+            """
+        params = {
+            "from": f"{RESEND_FROM_NAME} <{RESEND_FROM_EMAIL}>",
+            "to": [to],
+            "subject": subject,
+            "html": body,
         }
         return await self._send(params)
 

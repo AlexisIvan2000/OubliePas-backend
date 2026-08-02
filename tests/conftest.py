@@ -94,6 +94,19 @@ def mailbox(monkeypatch):
         sent.append({"kind": "admin", "to": to, "subject": subject})
         return {"id": "test"}
 
+    async def capture_reminder(self, to, *, first_name, items, currency):
+        sent.append(
+            {
+                "kind": "reminder",
+                "to": to,
+                "first_name": first_name,
+                "items": items,
+                "currency": currency,
+            }
+        )
+        return {"id": "test"}
+
+    monkeypatch.setattr(EmailSender, "send_reminder_email", capture_reminder)
     monkeypatch.setattr(EmailSender, "send_verification_email", capture_verification)
     monkeypatch.setattr(EmailSender, "send_reset_password_email", capture_reset)
     monkeypatch.setattr(EmailSender, "send_email_change_email", capture_change)
