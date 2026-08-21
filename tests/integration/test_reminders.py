@@ -186,7 +186,8 @@ class TestSelection:
 
         assert reminders() == []
         overdue = db(
-            "select reminder_sent_at from commitment_occurrences where due_date < current_date"
+            "select reminder_sent_at from commitment_occurrences where due_date < :today",
+            today=today_utc(),
         )
         assert [row[0] for row in overdue] == [None]
 

@@ -401,12 +401,16 @@ class TestSummary:
         assert body["upcoming_total"] == 10
 
     def test_excludes_what_is_already_late(self, client, token, db):
+        today = today_utc()
         created = create(client, token, netflix())
-        db(
-            "UPDATE commitment_occurrences SET due_date = current_date - 3"
-            " WHERE commitment_id = :id AND due_date = current_date",
+        moved = db(
+            "UPDATE commitment_occurrences SET due_date = :late"
+            " WHERE commitment_id = :id AND due_date = :today RETURNING id",
             id=created["id"],
+            late=today - timedelta(days=3),
+            today=today,
         )
+        assert len(moved) == 1
 
         body = client.get("/v1/commitments/summary", headers=auth(token)).json()
         assert body["late_count"] == 1
