@@ -164,6 +164,24 @@ class CommitmentRepository:
         )
         return {row_type: Decimal(total) for row_type, total in result.all()}
 
+    async def totals_by_category(
+        self, user_id: str, *, start: date, end: date
+    ) -> list[tuple[str, Decimal, int]]:
+        total = func.coalesce(func.sum(CommitmentOccurrence.amount), 0)
+        result = await self.session.execute(
+            select(Commitment.category, total, func.count())
+            .join(Commitment, Commitment.id == CommitmentOccurrence.commitment_id)
+            .where(
+                CommitmentOccurrence.user_id == user_id,
+                CommitmentOccurrence.due_date >= start,
+                CommitmentOccurrence.due_date <= end,
+                CommitmentOccurrence.status != "skipped",
+            )
+            .group_by(Commitment.category)
+            .order_by(total.desc(), Commitment.category)
+        )
+        return [(category, Decimal(amount), count) for category, amount, count in result.all()]
+
     async def totals_by_status(
         self, user_id: str, *, start: date, end: date
     ) -> dict[str, Decimal]:

@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 
@@ -176,6 +177,63 @@ class TestSingleCommitment:
         assert response.status_code == 200
         assert response.json()["next_due_date"] is None
         assert client.get("/v1/commitments/occurrences", headers=auth(token)).json() == []
+
+    def test_resuming_it_rebuilds_the_schedule(self, client, token):
+        created = create(client, token, netflix())
+        client.patch(
+            f"/v1/commitments/{created['id']}", json={"status": "paused"}, headers=auth(token)
+        )
+
+        response = client.patch(
+            f"/v1/commitments/{created['id']}", json={"status": "active"}, headers=auth(token)
+        )
+        assert response.status_code == 200
+        assert response.json()["next_due_date"] is not None
+        assert client.get("/v1/commitments/occurrences", headers=auth(token)).json() != []
+
+    def test_archiving_it_drops_the_schedule_but_keeps_the_row(self, client, token):
+        created = create(client, token, netflix())
+        response = client.patch(
+            f"/v1/commitments/{created['id']}", json={"status": "archived"}, headers=auth(token)
+        )
+        assert response.status_code == 200
+        assert response.json()["next_due_date"] is None
+        assert client.get("/v1/commitments/occurrences", headers=auth(token)).json() == []
+        assert client.get(f"/v1/commitments/{created['id']}", headers=auth(token)).status_code == 200
+
+    def test_the_default_listing_still_returns_archived_rows(self, client, token):
+        created = create(client, token, netflix())
+        client.patch(
+            f"/v1/commitments/{created['id']}", json={"status": "archived"}, headers=auth(token)
+        )
+
+        rows = client.get("/v1/commitments", headers=auth(token)).json()
+        assert [row["status"] for row in rows] == ["archived"]
+
+    def test_a_settled_occurrence_survives_a_pause(self, client, token):
+        created = create(client, token, netflix())
+        occurrences = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+        paid = occurrences[0]
+        client.patch(
+            f"/v1/commitments/occurrences/{paid['id']}",
+            json={"status": "paid"},
+            headers=auth(token),
+        )
+
+        client.patch(
+            f"/v1/commitments/{created['id']}", json={"status": "paused"}, headers=auth(token)
+        )
+
+        remaining = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+        assert [row["id"] for row in remaining] == [paid["id"]]
+        assert remaining[0]["status"] == "paid"
+
+    def test_an_unknown_status_is_rejected(self, client, token):
+        created = create(client, token, netflix())
+        response = client.patch(
+            f"/v1/commitments/{created['id']}", json={"status": "cancelled"}, headers=auth(token)
+        )
+        assert response.status_code == 422
 
     def test_renaming_leaves_the_schedule_alone(self, client, token):
         created = create(client, token, netflix())
@@ -393,3 +451,85 @@ class TestSummary:
         assert body["month_total"] == "0.00"
         assert body["active_count"] == 0
         assert body["upcoming"] == []
+        assert body["by_category"] == []
+
+    def test_ranks_the_categories_by_what_they_cost(self, client, token):
+        create(client, token, netflix())
+        create(client, token, netflix(title="Spotify", category="music", amount="10.99"))
+        create(client, token, loyer())
+
+        body = client.get("/v1/commitments/summary", headers=auth(token)).json()
+        assert [row["category"] for row in body["by_category"]] == [
+            "housing",
+            "entertainment",
+            "music",
+        ]
+        assert [row["total"] for row in body["by_category"]] == ["1250.00", "18.99", "10.99"]
+
+    def test_merges_every_line_of_the_same_category(self, client, token):
+        create(client, token, netflix())
+        create(client, token, netflix(title="Disney+", amount="12.00"))
+
+        body = client.get("/v1/commitments/summary", headers=auth(token)).json()
+        assert body["by_category"] == [
+            {"category": "entertainment", "total": "30.99", "count": 2}
+        ]
+
+    def test_the_categories_add_up_to_the_month_total(self, client, token):
+        today = today_utc()
+        create(client, token, netflix())
+        create(client, token, loyer())
+        create(
+            client,
+            token,
+            netflix(title="Gym", category="fitness", frequency="weekly", amount="9.50"),
+        )
+        create(
+            client,
+            token,
+            loyer(
+                title="Impots",
+                category="taxes",
+                frequency="oneoff",
+                starts_on=(today + timedelta(days=2)).isoformat(),
+            ),
+        )
+
+        body = client.get("/v1/commitments/summary", headers=auth(token)).json()
+        parts = sum(Decimal(row["total"]) for row in body["by_category"])
+        assert parts == Decimal(body["month_total"])
+
+    def test_a_skipped_due_date_leaves_its_category(self, client, token):
+        create(client, token, netflix())
+        create(client, token, loyer())
+        rows = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+        target = next(row for row in rows if row["category"] == "entertainment")
+        client.patch(
+            f"/v1/commitments/occurrences/{target['id']}",
+            json={"status": "skipped"},
+            headers=auth(token),
+        )
+
+        body = client.get("/v1/commitments/summary", headers=auth(token)).json()
+        assert [row["category"] for row in body["by_category"]] == ["housing"]
+
+    def test_a_settled_due_date_stays_in_its_category(self, client, token):
+        create(client, token, netflix())
+        rows = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+        client.patch(
+            f"/v1/commitments/occurrences/{rows[0]['id']}",
+            json={"status": "paid"},
+            headers=auth(token),
+        )
+
+        body = client.get("/v1/commitments/summary", headers=auth(token)).json()
+        assert body["by_category"] == [
+            {"category": "entertainment", "total": "18.99", "count": 1}
+        ]
+
+    def test_another_account_never_bleeds_into_the_breakdown(self, client, token, other_token):
+        create(client, token, netflix())
+        create(client, other_token, loyer())
+
+        body = client.get("/v1/commitments/summary", headers=auth(token)).json()
+        assert [row["category"] for row in body["by_category"]] == ["entertainment"]

@@ -125,6 +125,12 @@ class OccurrenceResponse(BaseModel):
     is_late: bool
 
 
+class CategoryTotal(BaseModel):
+    category: str
+    total: Decimal
+    count: int
+
+
 class DashboardSummary(BaseModel):
     currency: str
     month: str
@@ -138,3 +144,4 @@ class DashboardSummary(BaseModel):
     upcoming_days: int
     upcoming_total: int
     upcoming: list[OccurrenceResponse]
+    by_category: list[CategoryTotal]

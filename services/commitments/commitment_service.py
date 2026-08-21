@@ -12,6 +12,7 @@ from models.db.commitments_db import Commitment, CommitmentOccurrence
 from models.schemas.commitment_schema import (
     MAX_UPCOMING,
     UPCOMING_DAYS,
+    CategoryTotal,
     CommitmentCreate,
     CommitmentResponse,
     CommitmentUpdate,
@@ -183,6 +184,7 @@ class CommitmentService:
 
         by_type = await self.repo.totals_by_type(user_id, start=start, end=end)
         by_status = await self.repo.totals_by_status(user_id, start=start, end=end)
+        by_category = await self.repo.totals_by_category(user_id, start=start, end=end)
         subscriptions = by_type.get("subscription", Decimal("0"))
         invoices = by_type.get("invoice", Decimal("0"))
 
@@ -211,4 +213,8 @@ class CommitmentService:
             upcoming_days=UPCOMING_DAYS,
             upcoming_total=upcoming_total,
             upcoming=[self._occurrence_response(row, today) for row in upcoming],
+            by_category=[
+                CategoryTotal(category=category, total=money(total), count=count)
+                for category, total, count in by_category
+            ],
         )
