@@ -91,7 +91,7 @@ class ReminderService:
     async def _open_actions(self, reference: date) -> list[tuple]:
         actionable = []
         for occurrence, commitment in await self.repo.action_candidates(reference):
-            window = action_window(commitment, occurrence.due_date)
+            window = action_window(commitment, occurrence.due_date, reference=reference)
             if window is not None and window.is_open(reference):
                 actionable.append((occurrence, commitment, window))
         return actionable

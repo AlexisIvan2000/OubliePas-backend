@@ -43,14 +43,16 @@ def _cancellation_window(commitment: Commitment, due_date: date) -> ActionWindow
     )
 
 
-def action_window(commitment: Commitment, due_date: date) -> ActionWindow | None:
+def action_window(
+    commitment: Commitment, due_date: date, *, reference: date
+) -> ActionWindow | None:
     windows = [
         window
         for window in (
             _trial_window(commitment, due_date),
             _cancellation_window(commitment, due_date),
         )
-        if window is not None
+        if window is not None and window.deadline >= reference
     ]
     if not windows:
         return None

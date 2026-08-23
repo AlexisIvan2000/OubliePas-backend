@@ -608,6 +608,27 @@ class TestAction:
 
         assert actions() == []
 
+    def test_a_trial_survives_a_cancellation_notice(self, client, token, run_job, actions):
+        charge = today_utc() + timedelta(days=3)
+        client.post(
+            "/v1/commitments",
+            json=netflix(
+                title="Gym",
+                starts_on=charge.isoformat(),
+                trial_ends_on=charge.isoformat(),
+                cancellation_notice_days=30,
+                reminder_days_before=3,
+            ),
+            headers=auth(token),
+        )
+
+        run_job()
+
+        sent = actions()
+        assert len(sent) == 1
+        assert sent[0]["items"][0]["reason"] == "trial"
+        assert sent[0]["items"][0]["deadline"] == charge
+
     def test_a_plain_commitment_never_triggers_one(self, client, token, run_job, actions):
         client.post(
             "/v1/commitments",
