@@ -106,7 +106,20 @@ def mailbox(monkeypatch):
         )
         return {"id": "test"}
 
+    async def capture_overdue(self, to, *, first_name, items, currency):
+        sent.append(
+            {
+                "kind": "overdue",
+                "to": to,
+                "first_name": first_name,
+                "items": items,
+                "currency": currency,
+            }
+        )
+        return {"id": "test"}
+
     monkeypatch.setattr(EmailSender, "send_reminder_email", capture_reminder)
+    monkeypatch.setattr(EmailSender, "send_overdue_email", capture_overdue)
     monkeypatch.setattr(EmailSender, "send_verification_email", capture_verification)
     monkeypatch.setattr(EmailSender, "send_reset_password_email", capture_reset)
     monkeypatch.setattr(EmailSender, "send_email_change_email", capture_change)

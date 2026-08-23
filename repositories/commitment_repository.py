@@ -2,15 +2,18 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from models.db.commitments_db import (
     MAX_REMINDER_DAYS,
+    OVERDUE_REMINDER_DAYS,
+    OVERDUE_REMINDER_WINDOW_DAYS,
     Commitment,
     CommitmentOccurrence,
+    OccurrenceReminder,
 )
 
 
@@ -271,19 +274,32 @@ class CommitmentRepository:
         await self.session.flush()
         return occurrence
 
-    async def due_for_reminder(self, on_date: date) -> list[tuple[CommitmentOccurrence, Commitment]]:
-        result = await self.session.execute(
+    def _unreminded(self, kind: str, *, earliest: date, latest: date):
+        sent = select(OccurrenceReminder.id).where(
+            OccurrenceReminder.occurrence_id == CommitmentOccurrence.id,
+            OccurrenceReminder.kind == kind,
+        )
+        return (
             select(CommitmentOccurrence, Commitment)
             .join(Commitment, Commitment.id == CommitmentOccurrence.commitment_id)
             .where(
                 CommitmentOccurrence.status == "pending",
-                CommitmentOccurrence.reminder_sent_at.is_(None),
-                CommitmentOccurrence.due_date >= on_date,
-                CommitmentOccurrence.due_date <= on_date + timedelta(days=MAX_REMINDER_DAYS),
+                CommitmentOccurrence.due_date >= earliest,
+                CommitmentOccurrence.due_date <= latest,
                 Commitment.status == "active",
                 Commitment.is_reminder_enabled.is_(True),
+                ~sent.exists(),
             )
             .order_by(CommitmentOccurrence.due_date)
+        )
+
+    async def due_for_reminder(self, on_date: date) -> list[tuple[CommitmentOccurrence, Commitment]]:
+        result = await self.session.execute(
+            self._unreminded(
+                "notice",
+                earliest=on_date,
+                latest=on_date + timedelta(days=MAX_REMINDER_DAYS),
+            )
         )
         return [
             (occurrence, commitment)
@@ -291,17 +307,45 @@ class CommitmentRepository:
             if (occurrence.due_date - on_date).days <= commitment.reminder_days_before
         ]
 
+    async def overdue_for_reminder(
+        self, on_date: date
+    ) -> list[tuple[CommitmentOccurrence, Commitment]]:
+        result = await self.session.execute(
+            self._unreminded(
+                "overdue",
+                earliest=on_date - timedelta(days=OVERDUE_REMINDER_WINDOW_DAYS),
+                latest=on_date - timedelta(days=OVERDUE_REMINDER_DAYS),
+            )
+        )
+        return [(occurrence, commitment) for occurrence, commitment in result.all()]
+
     async def mark_reminders_sent(
-        self, occurrence_ids: list[uuid.UUID], *, sent_at: datetime | None = None
+        self,
+        occurrence_ids: list[uuid.UUID],
+        *,
+        kind: str,
+        sent_at: datetime | None = None,
     ) -> int:
         if not occurrence_ids:
             return 0
 
-        result = await self.session.execute(
-            update(CommitmentOccurrence)
-            .where(CommitmentOccurrence.id.in_(occurrence_ids))
-            .values(reminder_sent_at=sent_at or datetime.now(timezone.utc))
+        stamp = sent_at or datetime.now(timezone.utc)
+        statement = (
+            pg_insert(OccurrenceReminder)
+            .values(
+                [
+                    {
+                        "id": uuid.uuid4(),
+                        "occurrence_id": occurrence_id,
+                        "kind": kind,
+                        "sent_at": stamp,
+                    }
+                    for occurrence_id in occurrence_ids
+                ]
+            )
+            .on_conflict_do_nothing(constraint="uq_reminder_occurrence_kind")
         )
+        result = await self.session.execute(statement)
         await self.session.flush()
         return result.rowcount
 

@@ -2,7 +2,6 @@ import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-import sqlalchemy as sa
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -25,10 +24,13 @@ COMMITMENT_TYPES = ("subscription", "invoice")
 COMMITMENT_FREQUENCIES = ("weekly", "monthly", "quarterly", "yearly", "oneoff")
 COMMITMENT_STATUSES = ("active", "paused", "archived")
 OCCURRENCE_STATUSES = ("pending", "paid", "skipped")
+REMINDER_KINDS = ("notice", "overdue", "action_required")
 
 DEFAULT_CATEGORY = "other"
 DEFAULT_REMINDER_DAYS = 3
 MAX_REMINDER_DAYS = 30
+OVERDUE_REMINDER_DAYS = 3
+OVERDUE_REMINDER_WINDOW_DAYS = 30
 
 
 def _in_clause(column: str, values: tuple[str, ...]) -> str:
@@ -87,11 +89,7 @@ class CommitmentOccurrence(Base):
         UniqueConstraint("commitment_id", "due_date", name="uq_occurrence_commitment_due"),
         CheckConstraint(_in_clause("status", OCCURRENCE_STATUSES), name="occurrences_status_check"),
         CheckConstraint("amount > 0", name="occurrences_amount_check"),
-        Index(
-            "ix_occurrences_reminder",
-            "due_date",
-            postgresql_where=sa.text("status = 'pending' AND reminder_sent_at IS NULL"),
-        ),
+        Index("ix_occurrences_due_status", "due_date", "status"),
         Index("ix_occurrences_user_due", "user_id", "due_date"),
     )
 
@@ -106,9 +104,32 @@ class CommitmentOccurrence(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     status: Mapped[str] = mapped_column(String(20), default="pending")
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
     commitment: Mapped["Commitment"] = relationship(back_populates="occurrences")
+    reminders: Mapped[list["OccurrenceReminder"]] = relationship(
+        back_populates="occurrence", cascade="all, delete-orphan"
+    )
+
+
+class OccurrenceReminder(Base):
+    __tablename__ = "occurrence_reminders"
+    __table_args__ = (
+        UniqueConstraint("occurrence_id", "kind", name="uq_reminder_occurrence_kind"),
+        CheckConstraint(_in_clause("kind", REMINDER_KINDS), name="reminders_kind_check"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    occurrence_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("commitment_occurrences.id", ondelete="CASCADE"),
+        index=True,
+    )
+    kind: Mapped[str] = mapped_column(String(20))
+    sent_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    occurrence: Mapped["CommitmentOccurrence"] = relationship(back_populates="reminders")

@@ -517,6 +517,74 @@ class TestSummary:
         body = client.get("/v1/commitments/summary", headers=auth(token)).json()
         assert [row["category"] for row in body["by_category"]] == ["housing"]
 
+    def test_a_corrected_amount_reaches_every_total(self, client, token):
+        create(client, token, loyer(title="Electricite", amount="87.00"))
+        rows = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+
+        client.patch(
+            f"/v1/commitments/occurrences/{rows[0]['id']}",
+            json={"status": "paid", "amount": "112.40"},
+            headers=auth(token),
+        )
+
+        body = client.get("/v1/commitments/summary", headers=auth(token)).json()
+        assert body["month_total"] == "112.40"
+        assert body["paid_total"] == "112.40"
+        assert body["pending_total"] == "0.00"
+        assert body["by_category"] == [
+            {"category": "housing", "total": "112.40", "count": 1}
+        ]
+
+    def test_a_correction_never_touches_the_rule(self, client, token):
+        created = create(client, token, loyer(title="Electricite", amount="87.00"))
+        rows = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+
+        client.patch(
+            f"/v1/commitments/occurrences/{rows[0]['id']}",
+            json={"status": "paid", "amount": "112.40"},
+            headers=auth(token),
+        )
+
+        body = client.get(
+            f"/v1/commitments/{created['id']}", headers=auth(token)
+        ).json()
+        assert body["amount"] == "87.00"
+
+    def test_a_skipped_due_date_leaves_the_month_total(self, client, token):
+        create(client, token, netflix())
+        create(client, token, loyer())
+        rows = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+        target = next(row for row in rows if row["category"] == "entertainment")
+
+        before = client.get("/v1/commitments/summary", headers=auth(token)).json()
+        client.patch(
+            f"/v1/commitments/occurrences/{target['id']}",
+            json={"status": "skipped"},
+            headers=auth(token),
+        )
+        after = client.get("/v1/commitments/summary", headers=auth(token)).json()
+
+        assert Decimal(before["month_total"]) - Decimal(after["month_total"]) == Decimal("18.99")
+        assert after["subscriptions_total"] == "0.00"
+        assert after["pending_total"] == after["month_total"]
+
+    def test_a_skipped_due_date_is_never_late(self, client, token, db):
+        create(client, token, netflix())
+        rows = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+        client.patch(
+            f"/v1/commitments/occurrences/{rows[0]['id']}",
+            json={"status": "skipped"},
+            headers=auth(token),
+        )
+        db(
+            "UPDATE commitment_occurrences SET due_date = :late WHERE id = :id",
+            id=rows[0]["id"],
+            late=today_utc() - timedelta(days=10),
+        )
+
+        body = client.get("/v1/commitments/summary", headers=auth(token)).json()
+        assert body["late_count"] == 0
+
     def test_a_settled_due_date_stays_in_its_category(self, client, token):
         create(client, token, netflix())
         rows = client.get("/v1/commitments/occurrences", headers=auth(token)).json()

@@ -250,7 +250,9 @@ class TestReminders:
             await OccurrenceGenerator(repo).sync(commitment, today=TODAY)
 
             first = await repo.due_for_reminder(TODAY)
-            await repo.mark_reminders_sent([occurrence.id for occurrence, _ in first])
+            await repo.mark_reminders_sent(
+                [occurrence.id for occurrence, _ in first], kind="notice"
+            )
             second = await repo.due_for_reminder(TODAY)
             return len(first), len(second)
 
@@ -270,6 +272,64 @@ class TestReminders:
             return await repo.due_for_reminder(TODAY)
 
         assert session_runner(work) == []
+
+
+    def test_selects_what_is_late_enough_to_relaunch(self, session_runner, user_id):
+        async def work(session):
+            repo = CommitmentRepository(session)
+            late = TODAY - timedelta(days=5)
+            commitment = await repo.create(
+                netflix(user_id, starts_on=late, frequency="oneoff")
+            )
+            await OccurrenceGenerator(repo).sync(commitment, today=late)
+            due = await repo.overdue_for_reminder(TODAY)
+            return [occurrence.due_date for occurrence, _ in due]
+
+        assert session_runner(work) == [TODAY - timedelta(days=5)]
+
+    def test_leaves_a_fresh_miss_alone(self, session_runner, user_id):
+        async def work(session):
+            repo = CommitmentRepository(session)
+            late = TODAY - timedelta(days=1)
+            commitment = await repo.create(
+                netflix(user_id, starts_on=late, frequency="oneoff")
+            )
+            await OccurrenceGenerator(repo).sync(commitment, today=late)
+            return await repo.overdue_for_reminder(TODAY)
+
+        assert session_runner(work) == []
+
+    def test_a_notice_never_consumes_the_relance(self, session_runner, user_id):
+        async def work(session):
+            repo = CommitmentRepository(session)
+            late = TODAY - timedelta(days=5)
+            commitment = await repo.create(
+                netflix(user_id, starts_on=late, frequency="oneoff")
+            )
+            await OccurrenceGenerator(repo).sync(commitment, today=late)
+            rows = await repo.list_occurrences(user_id, start=late, end=TODAY)
+            await repo.mark_reminders_sent([rows[0].id], kind="notice")
+
+            first = await repo.overdue_for_reminder(TODAY)
+            await repo.mark_reminders_sent(
+                [occurrence.id for occurrence, _ in first], kind="overdue"
+            )
+            second = await repo.overdue_for_reminder(TODAY)
+            return len(first), len(second)
+
+        assert session_runner(work) == (1, 0)
+
+    def test_marking_the_same_kind_twice_is_harmless(self, session_runner, user_id):
+        async def work(session):
+            repo = CommitmentRepository(session)
+            commitment = await repo.create(netflix(user_id, starts_on=TODAY + timedelta(days=2)))
+            await OccurrenceGenerator(repo).sync(commitment, today=TODAY)
+            due = await repo.due_for_reminder(TODAY)
+            ids = [occurrence.id for occurrence, _ in due]
+            await repo.mark_reminders_sent(ids, kind="notice")
+            return await repo.mark_reminders_sent(ids, kind="notice")
+
+        assert session_runner(work) == 0
 
 
 class TestTotals:

@@ -43,6 +43,21 @@ def reminders(mailbox):
     return lambda: [message for message in mailbox if message["kind"] == "reminder"]
 
 
+@pytest.fixture
+def relances(mailbox):
+    return lambda: [message for message in mailbox if message["kind"] == "overdue"]
+
+
+def kinds(db):
+    rows = db("select kind from occurrence_reminders order by kind")
+    return [row[0] for row in rows]
+
+
+def make_late(db, days):
+    db(f"update commitments set starts_on = starts_on - interval '{days} days'")
+    db(f"update commitment_occurrences set due_date = due_date - interval '{days} days'")
+
+
 class TestDelivery:
     def test_sends_an_email_for_an_upcoming_occurrence(
         self, client, token, run_job, reminders, credentials
@@ -73,8 +88,13 @@ class TestDelivery:
 
         run_job()
 
-        rows = db("select reminder_sent_at from commitment_occurrences where due_date = :d", d=due)
-        assert rows[0][0] is not None
+        rows = db(
+            "select r.kind from occurrence_reminders r"
+            " join commitment_occurrences o on o.id = r.occurrence_id"
+            " where o.due_date = :d",
+            d=due,
+        )
+        assert [row[0] for row in rows] == ["notice"]
 
     def test_never_sends_twice(self, client, token, run_job, reminders):
         due = today_utc() + timedelta(days=2)
@@ -185,11 +205,7 @@ class TestSelection:
         run_job()
 
         assert reminders() == []
-        overdue = db(
-            "select reminder_sent_at from commitment_occurrences where due_date < :today",
-            today=today_utc(),
-        )
-        assert [row[0] for row in overdue] == [None]
+        assert kinds(db) == ["overdue"]
 
     def test_skips_a_disabled_account(self, client, token, run_job, reminders, db, credentials):
         due = today_utc() + timedelta(days=1)
@@ -287,3 +303,114 @@ class TestGeneration:
         run_job()
 
         assert run_job()["occurrences_generated"] == 0
+class TestOverdue:
+    def test_relaunches_an_occurrence_left_pending(
+        self, client, token, run_job, relances, db, credentials
+    ):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        make_late(db, 4)
+
+        report = run_job()
+
+        assert report["overdue"] == 1
+        sent = relances()
+        assert len(sent) == 1
+        assert sent[0]["to"] == credentials["email"]
+        assert sent[0]["items"][0]["title"] == "Netflix"
+        assert sent[0]["items"][0]["days_left"] == -4
+
+    def test_stays_quiet_before_the_grace_period(self, client, token, run_job, relances, db):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        make_late(db, 2)
+
+        run_job()
+
+        assert relances() == []
+
+    def test_never_relaunches_twice(self, client, token, run_job, relances, db):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        make_late(db, 4)
+
+        run_job()
+        run_job()
+
+        assert len(relances()) == 1
+        assert kinds(db) == ["overdue"]
+
+    def test_ignores_an_occurrence_settled_late(self, client, token, run_job, relances, db):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        make_late(db, 4)
+        db("update commitment_occurrences set status = 'paid'")
+
+        run_job()
+
+        assert relances() == []
+
+    def test_ignores_a_skipped_occurrence(self, client, token, run_job, relances, db):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        make_late(db, 4)
+        db("update commitment_occurrences set status = 'skipped'")
+
+        run_job()
+
+        assert relances() == []
+
+    def test_ignores_an_ancient_occurrence(self, client, token, run_job, relances, db):
+        client.post(
+            "/v1/commitments", json=netflix(frequency="oneoff"), headers=auth(token)
+        )
+        make_late(db, 45)
+
+        run_job()
+
+        assert relances() == []
+
+    def test_ignores_a_commitment_with_reminders_disabled(
+        self, client, token, run_job, relances, db
+    ):
+        client.post(
+            "/v1/commitments",
+            json=netflix(is_reminder_enabled=False),
+            headers=auth(token),
+        )
+        make_late(db, 4)
+
+        run_job()
+
+        assert relances() == []
+
+    def test_a_notice_does_not_consume_the_relance(
+        self, client, token, run_job, reminders, relances, db
+    ):
+        due = today_utc() + timedelta(days=1)
+        client.post(
+            "/v1/commitments",
+            json=netflix(starts_on=due.isoformat(), reminder_days_before=3),
+            headers=auth(token),
+        )
+
+        run_job()
+        assert len(reminders()) == 1
+
+        make_late(db, 5)
+        run_job()
+
+        assert len(relances()) == 1
+        assert kinds(db) == ["notice", "overdue"]
+
+    def test_groups_every_late_occurrence_into_a_single_email(
+        self, client, token, run_job, relances, db
+    ):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        client.post(
+            "/v1/commitments",
+            json=netflix(title="Spotify", amount="11.99"),
+            headers=auth(token),
+        )
+        make_late(db, 4)
+
+        run_job()
+
+        sent = relances()
+        assert len(sent) == 1
+        assert len(sent[0]["items"]) == 2

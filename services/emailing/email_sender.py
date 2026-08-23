@@ -4,7 +4,12 @@ from functools import partial
 from typing import Dict
 
 import resend
-from core.config import RESEND_API_KEY, RESEND_FROM_EMAIL, RESEND_FROM_NAME
+from core.config import (
+    FRONTEND_URL,
+    RESEND_API_KEY,
+    RESEND_FROM_EMAIL,
+    RESEND_FROM_NAME,
+)
 
 
 def _plain_text_to_html_paragraphs(text: str) -> str:
@@ -15,6 +20,13 @@ def _plain_text_to_html_paragraphs(text: str) -> str:
         f'<p style="margin: 0 0 16px 0; line-height: 1.6;">{p.replace(chr(10), "<br/>")}</p>'
         for p in paragraphs
     )
+
+
+def _late_label(days_left: int) -> str:
+    late = -days_left
+    if late == 1:
+        return "en retard d'un jour"
+    return f"en retard de {late} jours"
 
 
 def _due_label(days_left: int) -> str:
@@ -131,6 +143,52 @@ class EmailSender:
                     <table style="width: 100%; border-collapse: collapse; margin: 24px 0;">{rows}</table>
                     <p style="color: #888; font-size: 12px; text-align: center; margin: 0;">
                         Vous recevez ce message parce que les rappels sont actifs sur ces engagements.<br/>
+                        Ne pas répondre directement à cet email.
+                    </p>
+                </div>
+            """
+        params = {
+            "from": f"{RESEND_FROM_NAME} <{RESEND_FROM_EMAIL}>",
+            "to": [to],
+            "subject": subject,
+            "html": body,
+        }
+        return await self._send(params)
+
+    async def send_overdue_email(
+        self, to: str, *, first_name: str, items: list, currency: str
+    ) -> Dict:
+        count = len(items)
+        plural = "s" if count > 1 else ""
+        subject = f"{count} échéance{plural} en retard"
+
+        rows = "".join(
+            f"""
+                        <tr>
+                            <td style="padding: 12px 0; border-bottom: 1px solid #eee;">
+                                <strong style="color: #333;">{html.escape(str(item["title"]))}</strong><br/>
+                                <span style="color: #b45309; font-size: 13px;">{_late_label(item["days_left"])} &middot; {item["due_date"].strftime("%d/%m/%Y")}</span>
+                            </td>
+                            <td style="padding: 12px 0; border-bottom: 1px solid #eee; text-align: right; white-space: nowrap; color: #333;">
+                                {item["amount"]:.2f} {html.escape(currency)}
+                            </td>
+                        </tr>
+            """
+            for item in items
+        )
+
+        body = f"""
+                <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px; color: #333;">
+                    <h2 style="color: #0D9488; text-align: center; font-size: 22px; margin-top: 0;">OubliePas</h2>
+                    <p>Bonjour {html.escape(first_name)},</p>
+                    <p>{"Ces échéances sont passées" if count > 1 else "Cette échéance est passée"} et {"restent" if count > 1 else "reste"} en attente :</p>
+                    <table style="width: 100%; border-collapse: collapse; margin: 24px 0;">{rows}</table>
+                    <p>Déjà payé{plural} ? Pas {"ces mois-ci" if count > 1 else "ce mois-ci"} ? Ou simplement oublié{plural} ? Mettez {"-les" if count > 1 else "-la"} à jour en un geste.</p>
+                    <div style="text-align: center; margin: 28px 0;">
+                        <a href="{html.escape(FRONTEND_URL)}/calendrier" style="background-color: #0D9488; color: #ffffff; padding: 12px 28px; border-radius: 8px; text-decoration: none; display: inline-block;">Mettre à jour</a>
+                    </div>
+                    <p style="color: #888; font-size: 12px; text-align: center; margin: 0;">
+                        Ce rappel de retard n'est envoyé qu'une seule fois par échéance.<br/>
                         Ne pas répondre directement à cet email.
                     </p>
                 </div>
