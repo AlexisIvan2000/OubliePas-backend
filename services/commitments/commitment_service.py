@@ -8,7 +8,11 @@ from core.exceptions import (
     NoFieldsToUpdate,
     OccurrenceNotFound,
 )
-from models.db.commitments_db import Commitment, CommitmentOccurrence
+from models.db.commitments_db import (
+    DEFAULT_REMINDER_DAYS,
+    Commitment,
+    CommitmentOccurrence,
+)
 from models.schemas.commitment_schema import (
     MAX_UPCOMING,
     UPCOMING_DAYS,
@@ -78,9 +82,18 @@ class CommitmentService:
             raise CommitmentNotFound()
         return commitment
 
-    async def create(self, user_id: str, payload: CommitmentCreate) -> CommitmentResponse:
+    async def create(
+        self,
+        user_id: str,
+        payload: CommitmentCreate,
+        *,
+        default_reminder_days: int = DEFAULT_REMINDER_DAYS,
+    ) -> CommitmentResponse:
         today = today_utc()
-        commitment = await self.repo.create({"user_id": user_id, **payload.model_dump()})
+        fields = payload.model_dump()
+        if fields["reminder_days_before"] is None:
+            fields["reminder_days_before"] = default_reminder_days
+        commitment = await self.repo.create({"user_id": user_id, **fields})
         await self.generator.sync(commitment, today=today)
         next_due = await self.repo.next_due_dates(user_id, today)
         return self._commitment_response(commitment, next_due.get(commitment.id))

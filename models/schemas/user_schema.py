@@ -3,6 +3,7 @@ import re
 from pydantic import BaseModel, EmailStr, Field, HttpUrl, field_validator
 
 from core.validators import normalize_currency
+from models.db.commitments_db import MAX_REMINDER_DAYS
 
 SPECIAL_CHARACTERS = r"[!@#$%^&*(),.?\":{}|<>_+=\[\]\\;'`~-]"
 MAX_AVATAR_URL_LENGTH = 2048
@@ -26,6 +27,7 @@ class UpdateProfile(BaseModel):
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     avatar_url: HttpUrl | None = None
     reminder_email_enabled: bool | None = None
+    default_reminder_days: int | None = Field(default=None, ge=0, le=MAX_REMINDER_DAYS)
 
     @field_validator("avatar_url")
     @classmethod

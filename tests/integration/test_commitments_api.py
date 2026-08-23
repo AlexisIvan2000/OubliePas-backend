@@ -344,6 +344,45 @@ class TestOccurrences:
         assert response.status_code == 400
 
 
+class TestDefaultReminderDelay:
+    def test_a_new_commitment_inherits_the_account_default(self, client, token):
+        client.patch("/v1/users/me", json={"default_reminder_days": 7}, headers=auth(token))
+
+        created = create(client, token, netflix())
+
+        assert created["reminder_days_before"] == 7
+
+    def test_an_explicit_delay_still_wins(self, client, token):
+        client.patch("/v1/users/me", json={"default_reminder_days": 7}, headers=auth(token))
+
+        created = create(client, token, netflix(reminder_days_before=1))
+
+        assert created["reminder_days_before"] == 1
+
+    def test_an_explicit_zero_is_not_mistaken_for_missing(self, client, token):
+        client.patch("/v1/users/me", json={"default_reminder_days": 7}, headers=auth(token))
+
+        created = create(client, token, netflix(reminder_days_before=0))
+
+        assert created["reminder_days_before"] == 0
+
+    def test_changing_the_default_leaves_existing_commitments_alone(self, client, token):
+        created = create(client, token, netflix())
+        assert created["reminder_days_before"] == 3
+
+        client.patch("/v1/users/me", json={"default_reminder_days": 14}, headers=auth(token))
+
+        body = client.get(f"/v1/commitments/{created['id']}", headers=auth(token)).json()
+        assert body["reminder_days_before"] == 3
+
+    def test_the_account_default_drives_the_reminder(self, client, token, db):
+        client.patch("/v1/users/me", json={"default_reminder_days": 10}, headers=auth(token))
+        create(client, token, netflix())
+
+        rows = db("SELECT reminder_days_before FROM commitments")
+        assert rows[0][0] == 10
+
+
 class TestBackdatedInvoice:
     def test_a_bill_dated_yesterday_still_produces_its_due_date(self, client, token):
         yesterday = today_utc() - timedelta(days=1)

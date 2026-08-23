@@ -7,11 +7,16 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models.db.base import Base
+from models.db.commitments_db import DEFAULT_REMINDER_DAYS, MAX_REMINDER_DAYS
 
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (
         CheckConstraint("role IN ('user', 'admin', 'super_admin')", name="users_role_check"),
+        CheckConstraint(
+            f"default_reminder_days BETWEEN 0 AND {MAX_REMINDER_DAYS}",
+            name="users_reminder_days_check",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -35,6 +40,11 @@ class User(Base):
     currency: Mapped[str] = mapped_column(String(3), default="CAD")
     reminder_email_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=sa.text("true")
+    )
+    default_reminder_days: Mapped[int] = mapped_column(
+        Integer,
+        default=DEFAULT_REMINDER_DAYS,
+        server_default=sa.text(str(DEFAULT_REMINDER_DAYS)),
     )
     google_sub: Mapped[str | None] = mapped_column(String(255), unique=True, index=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

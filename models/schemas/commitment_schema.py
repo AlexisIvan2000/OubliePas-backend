@@ -42,9 +42,7 @@ class CommitmentCreate(BaseModel):
     cancellation_notice_days: int | None = Field(
         default=None, ge=1, le=MAX_CANCELLATION_NOTICE_DAYS
     )
-    reminder_days_before: int = Field(
-        default=DEFAULT_REMINDER_DAYS, ge=0, le=MAX_REMINDER_DAYS
-    )
+    reminder_days_before: int | None = Field(default=None, ge=0, le=MAX_REMINDER_DAYS)
     is_reminder_enabled: bool = True
     notes: str | None = Field(default=None, max_length=MAX_NOTES_LENGTH)
 

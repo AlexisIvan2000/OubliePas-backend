@@ -16,4 +16,5 @@ def user_response(user: User) -> UserResponse:
         has_password=bool(user.password_hash),
         currency=user.currency,
         reminder_email_enabled=user.reminder_email_enabled,
+        default_reminder_days=user.default_reminder_days,
     )

@@ -83,6 +83,39 @@ class TestReminderSwitch:
         assert rows[0][0] == 1
 
 
+class TestDefaultReminderDays:
+    def test_starts_at_three_days(self, client, token):
+        body = client.get("/v1/users/me", headers=auth(token)).json()
+        assert body["default_reminder_days"] == 3
+
+    def test_can_be_changed(self, client, token):
+        assert (
+            client.patch(
+                "/v1/users/me", json={"default_reminder_days": 7}, headers=auth(token)
+            ).status_code
+            == 200
+        )
+        body = client.get("/v1/users/me", headers=auth(token)).json()
+        assert body["default_reminder_days"] == 7
+
+    def test_same_day_is_allowed(self, client, token):
+        client.patch("/v1/users/me", json={"default_reminder_days": 0}, headers=auth(token))
+        body = client.get("/v1/users/me", headers=auth(token)).json()
+        assert body["default_reminder_days"] == 0
+
+    def test_refuses_more_than_a_month(self, client, token):
+        response = client.patch(
+            "/v1/users/me", json={"default_reminder_days": 31}, headers=auth(token)
+        )
+        assert response.status_code == 422
+
+    def test_refuses_a_negative_delay(self, client, token):
+        response = client.patch(
+            "/v1/users/me", json={"default_reminder_days": -1}, headers=auth(token)
+        )
+        assert response.status_code == 422
+
+
 class TestUpdateProfile:
     def test_updates_the_given_fields(self, client, token, db, verified):
         response = client.patch(

@@ -42,9 +42,16 @@ class TestCommitmentCreate:
         model = CommitmentCreate(**payload())
         assert model.category == commitments_db.DEFAULT_CATEGORY
         assert model.frequency == "monthly"
-        assert model.reminder_days_before == commitments_db.DEFAULT_REMINDER_DAYS
         assert model.is_reminder_enabled is True
         assert model.ends_on is None
+
+    def test_leaves_the_reminder_delay_unset_for_the_account_default(self):
+        model = CommitmentCreate(**payload())
+        assert model.reminder_days_before is None
+
+    def test_keeps_an_explicit_reminder_delay(self):
+        model = CommitmentCreate(**payload(reminder_days_before=0))
+        assert model.reminder_days_before == 0
 
     def test_trims_surrounding_whitespace(self):
         model = CommitmentCreate(**payload(title="  Spotify  ", category="  music  "))

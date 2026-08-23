@@ -75,7 +75,9 @@ async def create_commitment(
     user: CurrentUserDep,
     service: CommitmentServiceDep,
 ):
-    return await service.create(str(user.id), payload)
+    return await service.create(
+        str(user.id), payload, default_reminder_days=user.default_reminder_days
+    )
 
 
 @router.get("/{commitment_id}", response_model=CommitmentResponse)
