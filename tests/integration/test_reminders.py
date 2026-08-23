@@ -384,6 +384,42 @@ class TestOverdue:
 
         assert relances() == []
 
+    def test_a_deeply_backdated_bill_is_deliberately_left_alone(
+        self, client, token, run_job, relances
+    ):
+        client.post(
+            "/v1/commitments",
+            json=netflix(
+                title="Koodo",
+                frequency="oneoff",
+                starts_on=(today_utc() - timedelta(days=45)).isoformat(),
+            ),
+            headers=auth(token),
+        )
+
+        run_job()
+
+        assert relances() == []
+
+    def test_a_recently_backdated_bill_is_deliberately_relaunched(
+        self, client, token, run_job, relances
+    ):
+        client.post(
+            "/v1/commitments",
+            json=netflix(
+                title="Koodo",
+                frequency="oneoff",
+                starts_on=(today_utc() - timedelta(days=5)).isoformat(),
+            ),
+            headers=auth(token),
+        )
+
+        run_job()
+
+        sent = relances()
+        assert len(sent) == 1
+        assert sent[0]["items"][0]["days_left"] == -5
+
     def test_a_notice_does_not_consume_the_relance(
         self, client, token, run_job, reminders, relances, db
     ):

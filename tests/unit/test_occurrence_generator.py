@@ -161,11 +161,21 @@ class TestOneOff:
         )
         assert result == []
 
-    def test_is_ignored_when_already_past(self):
+    def test_survives_a_date_already_past(self):
         result = dates(
             starts_on=date(2026, 1, 15),
             frequency="oneoff",
             ends_on=None,
+            floor=date(2026, 7, 31),
+            horizon=date(2026, 10, 29),
+        )
+        assert result == [date(2026, 1, 15)]
+
+    def test_is_still_ignored_when_its_term_closed_first(self):
+        result = dates(
+            starts_on=date(2026, 1, 15),
+            frequency="oneoff",
+            ends_on=date(2026, 1, 10),
             floor=date(2026, 7, 31),
             horizon=date(2026, 10, 29),
         )
@@ -184,6 +194,30 @@ class TestPastCommitments:
         )
         assert result == [date(2026, 8, 10), date(2026, 9, 10), date(2026, 10, 10)]
         assert all(due >= floor for due in result)
+
+    def test_oneoff_backfills_exactly_one(self):
+        floor = date(2026, 7, 31)
+        result = dates(
+            starts_on=date(2024, 1, 10),
+            frequency="oneoff",
+            ends_on=None,
+            floor=floor,
+            horizon=date(2026, 10, 31),
+        )
+        assert result == [date(2024, 1, 10)]
+        assert len(result) == 1
+
+    def test_only_the_oneoff_escapes_the_floor(self):
+        floor = date(2026, 7, 31)
+        for frequency in ("weekly", "monthly", "quarterly", "yearly"):
+            result = dates(
+                starts_on=date(2024, 1, 10),
+                frequency=frequency,
+                ends_on=None,
+                floor=floor,
+                horizon=date(2026, 10, 31),
+            )
+            assert all(due >= floor for due in result), frequency
 
     def test_monthly_does_not_skip_the_first_due_date_after_the_floor(self):
         floor = date(2026, 7, 31)

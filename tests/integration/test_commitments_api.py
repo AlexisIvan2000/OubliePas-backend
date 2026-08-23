@@ -344,6 +344,84 @@ class TestOccurrences:
         assert response.status_code == 400
 
 
+class TestBackdatedInvoice:
+    def test_a_bill_dated_yesterday_still_produces_its_due_date(self, client, token):
+        yesterday = today_utc() - timedelta(days=1)
+        create(
+            client,
+            token,
+            loyer(title="Koodo", frequency="oneoff", starts_on=yesterday.isoformat()),
+        )
+
+        rows = client.get(
+            "/v1/commitments/occurrences",
+            params={
+                "start": (yesterday - timedelta(days=5)).isoformat(),
+                "end": (today_utc() + timedelta(days=5)).isoformat(),
+            },
+            headers=auth(token),
+        ).json()
+
+        assert len(rows) == 1
+        assert rows[0]["due_date"] == yesterday.isoformat()
+        assert rows[0]["status"] == "pending"
+        assert rows[0]["is_late"] is True
+
+    def test_it_shows_up_as_late_on_the_dashboard(self, client, token):
+        create(
+            client,
+            token,
+            loyer(
+                frequency="oneoff",
+                starts_on=(today_utc() - timedelta(days=2)).isoformat(),
+            ),
+        )
+
+        body = client.get("/v1/commitments/summary", headers=auth(token)).json()
+        assert body["late_count"] == 1
+
+    def test_a_backdated_bill_creates_exactly_one_due_date(self, client, token, db):
+        create(
+            client,
+            token,
+            loyer(
+                frequency="oneoff",
+                starts_on=(today_utc() - timedelta(days=400)).isoformat(),
+            ),
+        )
+
+        rows = db("select count(*) from commitment_occurrences")
+        assert rows[0][0] == 1
+
+    def test_a_recurring_bill_never_backfills(self, client, token, db):
+        create(
+            client,
+            token,
+            loyer(starts_on=(today_utc() - timedelta(days=400)).isoformat()),
+        )
+
+        rows = db(
+            "select count(*) from commitment_occurrences where due_date < :today",
+            today=today_utc(),
+        )
+        assert rows[0][0] == 0
+
+    def test_a_backdated_bill_still_respects_its_term(self, client, token, db):
+        past = today_utc() - timedelta(days=10)
+        create(
+            client,
+            token,
+            loyer(
+                frequency="oneoff",
+                starts_on=past.isoformat(),
+                ends_on=past.isoformat(),
+            ),
+        )
+
+        rows = db("select count(*) from commitment_occurrences")
+        assert rows[0][0] == 1
+
+
 class TestSummary:
     def test_splits_subscriptions_from_invoices(self, client, token):
         create(client, token, netflix())

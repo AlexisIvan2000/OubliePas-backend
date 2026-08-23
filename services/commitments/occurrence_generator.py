@@ -47,8 +47,12 @@ def occurrence_dates(
         return []
 
     if frequency == "oneoff":
+        # Seule exception au plancher : une facture ponctuelle datee d'hier a bel et
+        # bien existe, la refuser la ferait disparaitre sans trace. Les frequences
+        # recurrentes gardent le plancher, sinon un abonnement demarre il y a deux ans
+        # fabriquerait deux ans d'historique a sa creation.
         within_term = ends_on is None or starts_on <= ends_on
-        if floor <= starts_on <= horizon and within_term:
+        if starts_on <= horizon and within_term:
             return [starts_on]
         return []
 
