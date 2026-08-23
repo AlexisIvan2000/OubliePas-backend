@@ -3,11 +3,13 @@ from datetime import date
 
 from repositories.auth_repository import AuthRepository
 from repositories.commitment_repository import CommitmentRepository
+from services.commitments.action_window import TRIAL, action_window
 from services.commitments.occurrence_generator import today_utc
 from services.emailing.email_sender import EmailSender
 
 NOTICE = "notice"
 OVERDUE = "overdue"
+ACTION = "action_required"
 
 
 class ReminderService:
@@ -21,27 +23,34 @@ class ReminderService:
         self.auth_repo = auth_repo
         self.sender = sender
 
-    def _items(self, entries: list[tuple], reference: date) -> list[dict]:
-        return [
-            {
+    def _items(self, kind: str, entries: list[tuple], reference: date) -> list[dict]:
+        rows = []
+        for entry in entries:
+            occurrence, commitment = entry[0], entry[1]
+            item = {
                 "title": commitment.title,
                 "due_date": occurrence.due_date,
                 "amount": occurrence.amount,
                 "days_left": (occurrence.due_date - reference).days,
             }
-            for occurrence, commitment in entries
-        ]
+            if kind == ACTION:
+                window = entry[2]
+                item["deadline"] = window.deadline
+                item["reason"] = window.reason
+                item["days_left"] = window.days_left(reference)
+            rows.append(item)
+        return rows
 
     async def _deliver(self, kind: str, user, entries: list[tuple], reference: date) -> None:
-        send = (
-            self.sender.send_reminder_email
-            if kind == NOTICE
-            else self.sender.send_overdue_email
-        )
-        await send(
+        senders = {
+            NOTICE: self.sender.send_reminder_email,
+            OVERDUE: self.sender.send_overdue_email,
+            ACTION: self.sender.send_action_email,
+        }
+        await senders[kind](
             user.email,
             first_name=user.first_name,
-            items=self._items(entries, reference),
+            items=self._items(kind, entries, reference),
             currency=user.currency,
         )
 
@@ -56,8 +65,8 @@ class ReminderService:
         emailed: set,
     ) -> None:
         grouped: dict[str, list[tuple]] = defaultdict(list)
-        for occurrence, commitment in entries:
-            grouped[str(occurrence.user_id)].append((occurrence, commitment))
+        for entry in entries:
+            grouped[str(entry[0].user_id)].append(entry)
 
         for user_id, rows in grouped.items():
             user = await self.auth_repo.get_user_by_id(user_id)
@@ -71,18 +80,42 @@ class ReminderService:
                 report["failed"] += len(rows)
                 continue
 
-            await self.repo.mark_reminders_sent(
-                [occurrence.id for occurrence, _ in rows], kind=kind
-            )
+            await self.repo.mark_reminders_sent([entry[0].id for entry in rows], kind=kind)
+            if kind == ACTION:
+                covered = [entry[0].id for entry in rows if entry[2].reason == TRIAL]
+                await self.repo.mark_reminders_sent(covered, kind=NOTICE)
             await self.repo.session.commit()
             emailed.add(user_id)
             report[counter] += len(rows)
 
+    async def _open_actions(self, reference: date) -> list[tuple]:
+        actionable = []
+        for occurrence, commitment in await self.repo.action_candidates(reference):
+            window = action_window(commitment, occurrence.due_date)
+            if window is not None and window.is_open(reference):
+                actionable.append((occurrence, commitment, window))
+        return actionable
+
     async def send_due(self, *, on_date: date | None = None) -> dict:
         reference = on_date or today_utc()
-        report = {"users": 0, "occurrences": 0, "overdue": 0, "skipped": 0, "failed": 0}
+        report = {
+            "users": 0,
+            "occurrences": 0,
+            "overdue": 0,
+            "actions": 0,
+            "skipped": 0,
+            "failed": 0,
+        }
         emailed: set[str] = set()
 
+        await self._dispatch(
+            ACTION,
+            await self._open_actions(reference),
+            reference=reference,
+            counter="actions",
+            report=report,
+            emailed=emailed,
+        )
         await self._dispatch(
             NOTICE,
             await self.repo.due_for_reminder(reference),

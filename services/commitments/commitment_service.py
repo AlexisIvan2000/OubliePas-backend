@@ -24,7 +24,10 @@ from repositories.commitment_repository import CommitmentRepository
 from services.commitments.occurrence_generator import OccurrenceGenerator, today_utc
 
 RESCHEDULING_FIELDS = frozenset({"amount", "frequency", "starts_on", "ends_on", "status"})
-CLEARABLE_FIELDS = frozenset({"ends_on", "notes"})
+CLEARABLE_FIELDS = frozenset(
+    {"ends_on", "notes", "trial_ends_on", "cancellation_notice_days"}
+)
+ACTION_FIELDS = frozenset({"trial_ends_on", "cancellation_notice_days"})
 MAX_RANGE_DAYS = 400
 CENTS = Decimal("0.01")
 
@@ -121,10 +124,16 @@ class CommitmentService:
         if ends_on is not None and ends_on < starts_on:
             raise InvalidDateRange()
 
+        trial_ends_on = changes.get("trial_ends_on", commitment.trial_ends_on)
+        if trial_ends_on is not None and trial_ends_on > starts_on:
+            raise InvalidDateRange("The trial must end on or before the first due date")
+
         today = today_utc()
         updated = await self.repo.update(commitment_id, user_id, changes)
         if RESCHEDULING_FIELDS & changes.keys():
             await self.generator.resync(updated, today=today)
+        elif ACTION_FIELDS & changes.keys():
+            await self.repo.clear_reminders(commitment_id, kind="action_required")
 
         next_due = await self.repo.next_due_dates(user_id, today)
         return self._commitment_response(updated, next_due.get(updated.id))

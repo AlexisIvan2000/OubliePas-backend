@@ -31,6 +31,8 @@ DEFAULT_REMINDER_DAYS = 3
 MAX_REMINDER_DAYS = 30
 OVERDUE_REMINDER_DAYS = 3
 OVERDUE_REMINDER_WINDOW_DAYS = 30
+MIN_TRIAL_NOTICE_DAYS = 3
+MAX_CANCELLATION_NOTICE_DAYS = 60
 
 
 def _in_clause(column: str, values: tuple[str, ...]) -> str:
@@ -51,6 +53,15 @@ class Commitment(Base):
             name="commitments_reminder_days_check",
         ),
         CheckConstraint("ends_on IS NULL OR ends_on >= starts_on", name="commitments_dates_check"),
+        CheckConstraint(
+            "trial_ends_on IS NULL OR trial_ends_on <= starts_on",
+            name="commitments_trial_check",
+        ),
+        CheckConstraint(
+            "cancellation_notice_days IS NULL OR cancellation_notice_days BETWEEN 1 AND "
+            f"{MAX_CANCELLATION_NOTICE_DAYS}",
+            name="commitments_notice_check",
+        ),
         Index("ix_commitments_user_status", "user_id", "status"),
     )
 
@@ -65,6 +76,8 @@ class Commitment(Base):
     frequency: Mapped[str] = mapped_column(String(20), default="monthly")
     starts_on: Mapped[date] = mapped_column(Date)
     ends_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    trial_ends_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    cancellation_notice_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reminder_days_before: Mapped[int] = mapped_column(Integer, default=DEFAULT_REMINDER_DAYS)
     is_reminder_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     status: Mapped[str] = mapped_column(String(20), default="active", index=True)

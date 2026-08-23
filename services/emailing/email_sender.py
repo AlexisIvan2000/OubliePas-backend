@@ -29,6 +29,22 @@ def _late_label(days_left: int) -> str:
     return f"en retard de {late} jours"
 
 
+def _action_lines(item: dict, currency: str) -> tuple[str, str]:
+    amount = f"{item['amount']:.2f} {html.escape(currency)}"
+    deadline = item["deadline"].strftime("%d/%m/%Y")
+    due = item["due_date"].strftime("%d/%m/%Y")
+
+    if item["reason"] == "trial":
+        return (
+            f"Essai gratuit jusqu'au {deadline}",
+            f"Sans action de ta part, le prélèvement de {amount} commence le {due}.",
+        )
+    return (
+        f"Renouvellement le {due} pour {amount}",
+        f"Pour annuler, tu dois aviser avant le {deadline}.",
+    )
+
+
 def _due_label(days_left: int) -> str:
     if days_left <= 0:
         return "aujourd'hui"
@@ -189,6 +205,56 @@ class EmailSender:
                     </div>
                     <p style="color: #888; font-size: 12px; text-align: center; margin: 0;">
                         Ce rappel de retard n'est envoyé qu'une seule fois par échéance.<br/>
+                        Ne pas répondre directement à cet email.
+                    </p>
+                </div>
+            """
+        params = {
+            "from": f"{RESEND_FROM_NAME} <{RESEND_FROM_EMAIL}>",
+            "to": [to],
+            "subject": subject,
+            "html": body,
+        }
+        return await self._send(params)
+
+    async def send_action_email(
+        self, to: str, *, first_name: str, items: list, currency: str
+    ) -> Dict:
+        count = len(items)
+        first = items[0]
+
+        if count > 1:
+            subject = f"{count} décisions à prendre"
+        elif first["reason"] == "trial":
+            subject = f"Ton essai {first['title']} se termine {_due_label(first['days_left'])}"
+        else:
+            subject = f"{first['title']} se renouvelle le {first['due_date'].strftime('%d/%m/%Y')}"
+
+        rows = ""
+        for item in items:
+            headline, detail = _action_lines(item, currency)
+            rows += f"""
+                        <tr>
+                            <td style="padding: 14px 0; border-bottom: 1px solid #eee;">
+                                <strong style="color: #333;">{html.escape(str(item["title"]))}</strong>
+                                <span style="color: #0D9488; font-size: 13px; font-weight: 600;">&middot; {_due_label(item["days_left"])}</span><br/>
+                                <span style="color: #555; font-size: 13px;">{headline}</span><br/>
+                                <span style="color: #888; font-size: 13px;">{detail}</span>
+                            </td>
+                        </tr>
+            """
+
+        body = f"""
+                <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px; color: #333;">
+                    <h2 style="color: #0D9488; text-align: center; font-size: 22px; margin-top: 0;">OubliePas</h2>
+                    <p>Bonjour {html.escape(first_name)},</p>
+                    <p>{"Voici les échéances qui demandent une décision de ta part" if count > 1 else "Il y a une décision à prendre"}, avant qu'il ne soit trop tard :</p>
+                    <table style="width: 100%; border-collapse: collapse; margin: 24px 0;">{rows}</table>
+                    <div style="text-align: center; margin: 28px 0;">
+                        <a href="{html.escape(FRONTEND_URL)}" style="background-color: #0D9488; color: #ffffff; padding: 12px 28px; border-radius: 8px; text-decoration: none; display: inline-block;">Ouvrir OubliePas</a>
+                    </div>
+                    <p style="color: #888; font-size: 12px; text-align: center; margin: 0;">
+                        Ce rappel n'est envoyé qu'une seule fois par échéance.<br/>
                         Ne pas répondre directement à cet email.
                     </p>
                 </div>

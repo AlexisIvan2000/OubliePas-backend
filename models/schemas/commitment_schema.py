@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from models.db.commitments_db import (
     DEFAULT_CATEGORY,
     DEFAULT_REMINDER_DAYS,
+    MAX_CANCELLATION_NOTICE_DAYS,
     MAX_REMINDER_DAYS,
 )
 
@@ -37,6 +38,10 @@ class CommitmentCreate(BaseModel):
     frequency: CommitmentFrequency = "monthly"
     starts_on: date
     ends_on: date | None = None
+    trial_ends_on: date | None = None
+    cancellation_notice_days: int | None = Field(
+        default=None, ge=1, le=MAX_CANCELLATION_NOTICE_DAYS
+    )
     reminder_days_before: int = Field(
         default=DEFAULT_REMINDER_DAYS, ge=0, le=MAX_REMINDER_DAYS
     )
@@ -52,6 +57,8 @@ class CommitmentCreate(BaseModel):
     def check_term(self) -> "CommitmentCreate":
         if self.ends_on is not None and self.ends_on < self.starts_on:
             raise ValueError("ends_on must be on or after starts_on")
+        if self.trial_ends_on is not None and self.trial_ends_on > self.starts_on:
+            raise ValueError("trial_ends_on must be on or before starts_on")
         return self
 
 
@@ -65,6 +72,10 @@ class CommitmentUpdate(BaseModel):
     frequency: CommitmentFrequency | None = None
     starts_on: date | None = None
     ends_on: date | None = None
+    trial_ends_on: date | None = None
+    cancellation_notice_days: int | None = Field(
+        default=None, ge=1, le=MAX_CANCELLATION_NOTICE_DAYS
+    )
     reminder_days_before: int | None = Field(default=None, ge=0, le=MAX_REMINDER_DAYS)
     is_reminder_enabled: bool | None = None
     status: CommitmentStatus | None = None
@@ -83,6 +94,12 @@ class CommitmentUpdate(BaseModel):
             and self.ends_on < self.starts_on
         ):
             raise ValueError("ends_on must be on or after starts_on")
+        if (
+            self.trial_ends_on is not None
+            and self.starts_on is not None
+            and self.trial_ends_on > self.starts_on
+        ):
+            raise ValueError("trial_ends_on must be on or before starts_on")
         return self
 
 
@@ -97,6 +114,8 @@ class CommitmentResponse(BaseModel):
     frequency: CommitmentFrequency
     starts_on: date
     ends_on: date | None
+    trial_ends_on: date | None
+    cancellation_notice_days: int | None
     reminder_days_before: int
     is_reminder_enabled: bool
     status: CommitmentStatus

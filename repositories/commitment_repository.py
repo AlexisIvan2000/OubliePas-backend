@@ -2,12 +2,13 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from models.db.commitments_db import (
+    MAX_CANCELLATION_NOTICE_DAYS,
     MAX_REMINDER_DAYS,
     OVERDUE_REMINDER_DAYS,
     OVERDUE_REMINDER_WINDOW_DAYS,
@@ -318,6 +319,38 @@ class CommitmentRepository:
             )
         )
         return [(occurrence, commitment) for occurrence, commitment in result.all()]
+
+    async def action_candidates(
+        self, on_date: date
+    ) -> list[tuple[CommitmentOccurrence, Commitment]]:
+        result = await self.session.execute(
+            self._unreminded(
+                "action_required",
+                earliest=on_date,
+                latest=on_date
+                + timedelta(days=MAX_CANCELLATION_NOTICE_DAYS + MAX_REMINDER_DAYS),
+            ).where(
+                or_(
+                    Commitment.trial_ends_on.is_not(None),
+                    Commitment.cancellation_notice_days.is_not(None),
+                )
+            )
+        )
+        return [(occurrence, commitment) for occurrence, commitment in result.all()]
+
+    async def clear_reminders(self, commitment_id: str, *, kind: str) -> int:
+        pending = select(CommitmentOccurrence.id).where(
+            CommitmentOccurrence.commitment_id == commitment_id,
+            CommitmentOccurrence.status == "pending",
+        )
+        result = await self.session.execute(
+            delete(OccurrenceReminder).where(
+                OccurrenceReminder.kind == kind,
+                OccurrenceReminder.occurrence_id.in_(pending),
+            )
+        )
+        await self.session.flush()
+        return result.rowcount
 
     async def mark_reminders_sent(
         self,

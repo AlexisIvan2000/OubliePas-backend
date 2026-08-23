@@ -48,6 +48,11 @@ def relances(mailbox):
     return lambda: [message for message in mailbox if message["kind"] == "overdue"]
 
 
+@pytest.fixture
+def actions(mailbox):
+    return lambda: [message for message in mailbox if message["kind"] == "action"]
+
+
 def kinds(db):
     rows = db("select kind from occurrence_reminders order by kind")
     return [row[0] for row in rows]
@@ -414,3 +419,202 @@ class TestOverdue:
         sent = relances()
         assert len(sent) == 1
         assert len(sent[0]["items"]) == 2
+class TestAction:
+    def test_warns_before_a_trial_turns_into_a_charge(
+        self, client, token, run_job, actions, credentials
+    ):
+        charge = today_utc() + timedelta(days=3)
+        client.post(
+            "/v1/commitments",
+            json=netflix(
+                starts_on=charge.isoformat(),
+                trial_ends_on=charge.isoformat(),
+                reminder_days_before=3,
+            ),
+            headers=auth(token),
+        )
+
+        report = run_job()
+
+        assert report["actions"] == 1
+        sent = actions()
+        assert len(sent) == 1
+        assert sent[0]["to"] == credentials["email"]
+        assert sent[0]["items"][0]["reason"] == "trial"
+        assert sent[0]["items"][0]["deadline"] == charge
+        assert sent[0]["items"][0]["days_left"] == 3
+
+    def test_the_trial_warning_replaces_the_plain_notice(
+        self, client, token, run_job, actions, reminders, db
+    ):
+        charge = today_utc() + timedelta(days=3)
+        client.post(
+            "/v1/commitments",
+            json=netflix(
+                starts_on=charge.isoformat(),
+                trial_ends_on=charge.isoformat(),
+                reminder_days_before=3,
+            ),
+            headers=auth(token),
+        )
+
+        run_job()
+
+        assert len(actions()) == 1
+        assert reminders() == []
+        assert kinds(db) == ["action_required", "notice"]
+
+    def test_a_trial_below_the_minimum_notice_still_warns_in_time(
+        self, client, token, run_job, actions
+    ):
+        charge = today_utc() + timedelta(days=3)
+        client.post(
+            "/v1/commitments",
+            json=netflix(
+                starts_on=charge.isoformat(),
+                trial_ends_on=charge.isoformat(),
+                reminder_days_before=0,
+            ),
+            headers=auth(token),
+        )
+
+        run_job()
+
+        assert len(actions()) == 1
+
+    def test_warns_before_a_cancellation_window_closes(self, client, token, run_job, actions):
+        renewal = today_utc() + timedelta(days=32)
+        client.post(
+            "/v1/commitments",
+            json=netflix(
+                title="Assurance auto",
+                starts_on=renewal.isoformat(),
+                cancellation_notice_days=30,
+                reminder_days_before=3,
+            ),
+            headers=auth(token),
+        )
+
+        run_job()
+
+        sent = actions()
+        assert len(sent) == 1
+        assert sent[0]["items"][0]["reason"] == "cancellation"
+        assert sent[0]["items"][0]["deadline"] == renewal - timedelta(days=30)
+        assert sent[0]["items"][0]["due_date"] == renewal
+
+    def test_a_cancellation_warning_leaves_the_payment_notice_alone(
+        self, client, token, run_job, actions, reminders
+    ):
+        today = today_utc()
+        renewal = today + timedelta(days=32)
+        client.post(
+            "/v1/commitments",
+            json=netflix(
+                title="Assurance auto",
+                starts_on=renewal.isoformat(),
+                frequency="yearly",
+                cancellation_notice_days=30,
+                reminder_days_before=3,
+            ),
+            headers=auth(token),
+        )
+
+        run_job()
+        assert len(actions()) == 1
+        assert reminders() == []
+
+        run_job(today=today + timedelta(days=29))
+        assert len(reminders()) == 1
+
+    def test_stays_quiet_before_the_window_opens(self, client, token, run_job, actions):
+        renewal = today_utc() + timedelta(days=50)
+        client.post(
+            "/v1/commitments",
+            json=netflix(
+                starts_on=renewal.isoformat(),
+                cancellation_notice_days=30,
+                reminder_days_before=3,
+            ),
+            headers=auth(token),
+        )
+
+        run_job()
+
+        assert actions() == []
+
+    def test_never_warns_twice(self, client, token, run_job, actions, db):
+        charge = today_utc() + timedelta(days=3)
+        client.post(
+            "/v1/commitments",
+            json=netflix(starts_on=charge.isoformat(), trial_ends_on=charge.isoformat()),
+            headers=auth(token),
+        )
+
+        run_job()
+        run_job()
+
+        assert len(actions()) == 1
+        assert kinds(db) == ["action_required", "notice"]
+
+    def test_moving_the_trial_reopens_the_warning(self, client, token, run_job, actions):
+        today = today_utc()
+        charge = today + timedelta(days=3)
+        created = client.post(
+            "/v1/commitments",
+            json=netflix(starts_on=charge.isoformat(), trial_ends_on=charge.isoformat()),
+            headers=auth(token),
+        ).json()
+
+        run_job()
+        assert len(actions()) == 1
+
+        client.patch(
+            f"/v1/commitments/{created['id']}",
+            json={"trial_ends_on": (today + timedelta(days=1)).isoformat()},
+            headers=auth(token),
+        )
+        run_job()
+
+        assert len(actions()) == 2
+        assert actions()[1]["items"][0]["deadline"] == today + timedelta(days=1)
+
+    def test_ignores_a_commitment_with_reminders_disabled(self, client, token, run_job, actions):
+        charge = today_utc() + timedelta(days=3)
+        client.post(
+            "/v1/commitments",
+            json=netflix(
+                starts_on=charge.isoformat(),
+                trial_ends_on=charge.isoformat(),
+                is_reminder_enabled=False,
+            ),
+            headers=auth(token),
+        )
+
+        run_job()
+
+        assert actions() == []
+
+    def test_ignores_a_settled_occurrence(self, client, token, run_job, actions, db):
+        charge = today_utc() + timedelta(days=3)
+        client.post(
+            "/v1/commitments",
+            json=netflix(starts_on=charge.isoformat(), trial_ends_on=charge.isoformat()),
+            headers=auth(token),
+        )
+        db("update commitment_occurrences set status = 'paid'")
+
+        run_job()
+
+        assert actions() == []
+
+    def test_a_plain_commitment_never_triggers_one(self, client, token, run_job, actions):
+        client.post(
+            "/v1/commitments",
+            json=netflix(starts_on=(today_utc() + timedelta(days=2)).isoformat()),
+            headers=auth(token),
+        )
+
+        run_job()
+
+        assert actions() == []
