@@ -98,31 +98,6 @@ class CommitmentService:
         next_due = await self.repo.next_due_dates(user_id, today)
         return self._commitment_response(commitment, next_due.get(commitment.id))
 
-    async def create_many(
-        self,
-        user_id: str,
-        payloads: list[CommitmentCreate],
-        *,
-        default_reminder_days: int = DEFAULT_REMINDER_DAYS,
-    ) -> list[CommitmentResponse]:
-        today = today_utc()
-        created = []
-
-        async with self.repo.session.begin_nested():
-            for payload in payloads:
-                fields = payload.model_dump()
-                if fields["reminder_days_before"] is None:
-                    fields["reminder_days_before"] = default_reminder_days
-                commitment = await self.repo.create({"user_id": user_id, **fields})
-                await self.generator.sync(commitment, today=today)
-                created.append(commitment)
-
-        next_due = await self.repo.next_due_dates(user_id, today)
-        return [
-            self._commitment_response(commitment, next_due.get(commitment.id))
-            for commitment in created
-        ]
-
     async def list_commitments(
         self,
         user_id: str,
