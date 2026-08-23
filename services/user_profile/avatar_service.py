@@ -8,7 +8,7 @@ from repositories.auth_repository import AuthRepository
 from services.storage.object_storage import ObjectStorage, is_stored_key
 from services.user_profile.image_sanitizer import sanitize_avatar
 
-MAX_AVATAR_BYTES = 5 * 1024 * 1024
+MAX_AVATAR_BYTES = 9 * 1024 * 1024
 CHUNK_SIZE = 64 * 1024
 
 AVATAR_SIGNATURES = (

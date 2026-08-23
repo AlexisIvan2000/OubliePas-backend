@@ -224,7 +224,7 @@ class UnsupportedAvatarType(AppException):
 class AvatarTooLarge(AppException):
     status_code = 413
     code = "AVATAR_TOO_LARGE"
-    message = "The image must not exceed 5 MB"
+    message = "The image must not exceed 9 MB"
 
 
 class AvatarUploadFailed(AppException):
