@@ -1,3 +1,4 @@
+import logging
 from collections import defaultdict
 from datetime import date
 
@@ -6,6 +7,8 @@ from repositories.commitment_repository import CommitmentRepository
 from services.commitments.action_window import TRIAL, action_window
 from services.commitments.occurrence_generator import today_utc
 from services.emailing.email_sender import EmailSender
+
+logger = logging.getLogger(__name__)
 
 NOTICE = "notice"
 OVERDUE = "overdue"
@@ -77,6 +80,12 @@ class ReminderService:
             try:
                 await self._deliver(kind, user, rows, reference)
             except Exception:
+                logger.exception(
+                    "reminder '%s' failed for user %s (%d occurrence(s) left for the next run)",
+                    kind,
+                    user_id,
+                    len(rows),
+                )
                 report["failed"] += len(rows)
                 continue
 

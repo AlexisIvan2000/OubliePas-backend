@@ -1,5 +1,7 @@
 import asyncio
 import json
+import logging
+import sys
 from datetime import date
 
 from sqlalchemy import text
@@ -12,6 +14,8 @@ from services.emailing.email_sender import EmailSender
 from services.notifications.reminder_service import ReminderService
 
 LOCK_KEY = 8142026
+
+logger = logging.getLogger(__name__)
 
 
 async def run_daily(session: AsyncSession, *, today: date | None = None) -> dict:
@@ -56,5 +60,18 @@ async def _cli() -> dict:
         await dispose_engine()
 
 
+def exit_code(report: dict) -> int:
+    return 1 if report.get("failed") else 0
+
+
 if __name__ == "__main__":
-    print(json.dumps(asyncio.run(_cli())))
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s %(name)s %(message)s",
+        stream=sys.stderr,
+    )
+    outcome = asyncio.run(_cli())
+    print(json.dumps(outcome))
+    if outcome.get("failed"):
+        logger.error("%s reminder(s) could not be sent", outcome["failed"])
+    raise SystemExit(exit_code(outcome))

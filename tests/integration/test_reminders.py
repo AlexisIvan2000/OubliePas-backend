@@ -3,7 +3,8 @@ from datetime import timedelta
 import pytest
 from sqlalchemy import text
 
-from jobs.daily import LOCK_KEY, main, run_daily
+from jobs.daily import LOCK_KEY, exit_code, main, run_daily
+from services.emailing.email_sender import EmailSender
 from services.commitments.occurrence_generator import today_utc
 
 pytestmark = pytest.mark.integration
@@ -51,6 +52,18 @@ def relances(mailbox):
 @pytest.fixture
 def actions(mailbox):
     return lambda: [message for message in mailbox if message["kind"] == "action"]
+
+
+@pytest.fixture
+def other_token(client, mailbox):
+    payload = {"first_name": "Sophie", "email": "sophie@example.com", "password": "MotDePasse1!"}
+    assert client.post("/v1/auth/register", json=payload).status_code == 201
+    code = mailbox[-1]["code"]
+    response = client.post(
+        "/v1/auth/verify-email", json={"email": payload["email"], "code": code}
+    )
+    assert response.status_code == 200
+    return response.json()["access_token"]
 
 
 def kinds(db):
@@ -675,3 +688,69 @@ class TestAction:
         run_job()
 
         assert actions() == []
+class TestFailure:
+    def test_a_failed_send_is_counted_and_left_for_the_next_run(
+        self, client, token, run_job, reminders, db
+    ):
+        due = today_utc() + timedelta(days=2)
+        client.post(
+            "/v1/commitments",
+            json=netflix(starts_on=due.isoformat(), reminder_days_before=3),
+            headers=auth(token),
+        )
+
+        working = EmailSender.send_reminder_email
+
+        async def boom(self, to, *, first_name, items, currency):
+            raise RuntimeError("resend is down")
+
+        EmailSender.send_reminder_email = boom
+        try:
+            failed = run_job()
+        finally:
+            EmailSender.send_reminder_email = working
+
+        assert failed["failed"] == 1
+        assert failed["occurrences"] == 0
+        assert exit_code(failed) == 1
+        assert reminders() == []
+        assert kinds(db) == []
+
+        recovered = run_job()
+
+        assert recovered["failed"] == 0
+        assert recovered["occurrences"] == 1
+        assert exit_code(recovered) == 0
+        assert len(reminders()) == 1
+        assert kinds(db) == ["notice"]
+
+    def test_one_broken_account_never_blocks_the_others(
+        self, client, token, other_token, run_job, reminders
+    ):
+        due = today_utc() + timedelta(days=2)
+        for owner in (token, other_token):
+            client.post(
+                "/v1/commitments",
+                json=netflix(starts_on=due.isoformat(), reminder_days_before=3),
+                headers=auth(owner),
+            )
+
+        working = EmailSender.send_reminder_email
+        seen = []
+
+        async def flaky(self, to, *, first_name, items, currency):
+            seen.append(to)
+            if len(seen) == 1:
+                raise RuntimeError("resend is down")
+            return await working(self, to, first_name=first_name, items=items, currency=currency)
+
+        EmailSender.send_reminder_email = flaky
+        try:
+            report = run_job()
+        finally:
+            EmailSender.send_reminder_email = working
+
+        assert report["failed"] == 1
+        assert report["occurrences"] == 1
+        assert report["users"] == 1
+        assert len(reminders()) == 1
