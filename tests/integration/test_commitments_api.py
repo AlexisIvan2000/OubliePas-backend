@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 
+from models.schemas.commitment_schema import MAX_BATCH_ITEMS
 from services.commitments.occurrence_generator import today_utc
 
 pytestmark = pytest.mark.integration
@@ -342,6 +343,121 @@ class TestOccurrences:
             headers=auth(token),
         )
         assert response.status_code == 400
+
+
+class TestBatchCreation:
+    def test_creates_every_line_at_once(self, client, token):
+        response = client.post(
+            "/v1/commitments/batch",
+            json={"items": [netflix(), loyer(), netflix(title="Spotify", amount="13.99")]},
+            headers=auth(token),
+        )
+
+        assert response.status_code == 201
+        assert [row["title"] for row in response.json()] == ["Netflix", "Loyer", "Spotify"]
+
+    def test_the_lines_are_really_stored(self, client, token, db):
+        client.post(
+            "/v1/commitments/batch",
+            json={"items": [netflix(), loyer()]},
+            headers=auth(token),
+        )
+
+        rows = db("SELECT count(*) FROM commitments")
+        assert rows[0][0] == 2
+
+    def test_each_line_gets_its_due_dates(self, client, token):
+        client.post(
+            "/v1/commitments/batch",
+            json={"items": [netflix(), loyer()]},
+            headers=auth(token),
+        )
+
+        rows = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+        assert {row["title"] for row in rows} == {"Netflix", "Loyer"}
+
+    def test_the_account_default_delay_applies(self, client, token):
+        client.patch("/v1/users/me", json={"default_reminder_days": 7}, headers=auth(token))
+
+        body = client.post(
+            "/v1/commitments/batch", json={"items": [netflix()]}, headers=auth(token)
+        ).json()
+
+        assert body[0]["reminder_days_before"] == 7
+
+    def test_a_bad_line_names_itself(self, client, token):
+        response = client.post(
+            "/v1/commitments/batch",
+            json={"items": [netflix(), netflix(amount="0"), loyer()]},
+            headers=auth(token),
+        )
+
+        assert response.status_code == 422
+        fields = [error["field"] for error in response.json()["detail"]["errors"]]
+        assert "items.1.amount" in fields
+
+    def test_several_bad_lines_are_all_reported(self, client, token):
+        response = client.post(
+            "/v1/commitments/batch",
+            json={
+                "items": [
+                    netflix(amount="0"),
+                    netflix(),
+                    loyer(starts_on="pas-une-date"),
+                ]
+            },
+            headers=auth(token),
+        )
+
+        fields = {error["field"] for error in response.json()["detail"]["errors"]}
+        assert "items.0.amount" in fields
+        assert "items.2.starts_on" in fields
+
+    def test_nothing_is_created_when_one_line_fails(self, client, token, db):
+        client.post(
+            "/v1/commitments/batch",
+            json={"items": [netflix(), netflix(title="Spotify", amount="0")]},
+            headers=auth(token),
+        )
+
+        rows = db("SELECT count(*) FROM commitments")
+        assert rows[0][0] == 0
+
+    def test_an_empty_batch_is_refused(self, client, token):
+        response = client.post(
+            "/v1/commitments/batch", json={"items": []}, headers=auth(token)
+        )
+        assert response.status_code == 422
+
+    def test_a_batch_beyond_the_cap_is_refused(self, client, token, db):
+        response = client.post(
+            "/v1/commitments/batch",
+            json={"items": [netflix() for _ in range(MAX_BATCH_ITEMS + 1)]},
+            headers=auth(token),
+        )
+
+        assert response.status_code == 422
+        assert db("SELECT count(*) FROM commitments")[0][0] == 0
+
+    def test_the_cap_itself_passes(self, client, token, db):
+        response = client.post(
+            "/v1/commitments/batch",
+            json={"items": [netflix(title=f"Ligne {i}") for i in range(MAX_BATCH_ITEMS)]},
+            headers=auth(token),
+        )
+
+        assert response.status_code == 201
+        assert db("SELECT count(*) FROM commitments")[0][0] == MAX_BATCH_ITEMS
+
+    def test_it_needs_authentication(self, client):
+        assert client.post("/v1/commitments/batch", json={"items": [netflix()]}).status_code == 401
+
+    def test_the_lines_belong_to_the_caller(self, client, token, other_token):
+        client.post(
+            "/v1/commitments/batch", json={"items": [netflix()]}, headers=auth(token)
+        )
+
+        assert client.get("/v1/commitments", headers=auth(other_token)).json() == []
 
 
 class TestDefaultReminderDelay:

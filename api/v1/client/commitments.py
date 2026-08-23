@@ -7,6 +7,7 @@ from api.dependencies import CommitmentServiceDep, CurrentUserDep
 from core.rate_limit import limiter
 from models.schemas.auth_schema import MessageResponse
 from models.schemas.commitment_schema import (
+    CommitmentBatch,
     CommitmentCreate,
     CommitmentResponse,
     CommitmentStatus,
@@ -77,6 +78,19 @@ async def create_commitment(
 ):
     return await service.create(
         str(user.id), payload, default_reminder_days=user.default_reminder_days
+    )
+
+
+@router.post("/batch", response_model=list[CommitmentResponse], status_code=201)
+@limiter.limit("10/minute")
+async def create_commitments(
+    request: Request,
+    payload: CommitmentBatch,
+    user: CurrentUserDep,
+    service: CommitmentServiceDep,
+):
+    return await service.create_many(
+        str(user.id), payload.items, default_reminder_days=user.default_reminder_days
     )
 
 

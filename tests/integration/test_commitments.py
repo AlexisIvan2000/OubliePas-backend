@@ -6,6 +6,8 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from models.db.commitments_db import Commitment
 from repositories.commitment_repository import CommitmentRepository
+from models.schemas.commitment_schema import CommitmentCreate
+from services.commitments.commitment_service import CommitmentService
 from services.commitments.occurrence_generator import OccurrenceGenerator
 
 pytestmark = pytest.mark.integration
@@ -383,3 +385,73 @@ def test_commitment_model_exposes_its_occurrences(session_runner, user_id):
         return len(found.occurrences)
 
     assert session_runner(work) == 3
+class TestBatchAtomicity:
+    def test_a_failure_midway_leaves_nothing_behind(self, session_runner, user_id):
+        async def work(session):
+            repo = CommitmentRepository(session)
+            generator = OccurrenceGenerator(repo)
+            service = CommitmentService(repo, generator)
+
+            working = generator.sync
+            seen = {"count": 0}
+
+            async def flaky(commitment, *, today=None):
+                seen["count"] += 1
+                if seen["count"] == 2:
+                    raise RuntimeError("le second echoue")
+                return await working(commitment, today=today)
+
+            generator.sync = flaky
+
+            payloads = [
+                CommitmentCreate(
+                    title=title,
+                    type="subscription",
+                    category="entertainment",
+                    amount=Decimal("18.99"),
+                    frequency="monthly",
+                    starts_on=TODAY + timedelta(days=3),
+                )
+                for title in ("Netflix", "Spotify")
+            ]
+
+            failed = False
+            try:
+                await service.create_many(user_id, payloads)
+            except RuntimeError:
+                failed = True
+
+            remaining = await repo.list_for_user(user_id)
+            occurrences = await repo.list_occurrences(
+                user_id, start=TODAY, end=TODAY + timedelta(days=90)
+            )
+            return failed, len(remaining), len(occurrences)
+
+        failed, commitments, occurrences = session_runner(work)
+        assert failed
+        assert commitments == 0
+        assert occurrences == 0
+
+    def test_a_clean_batch_keeps_everything(self, session_runner, user_id):
+        async def work(session):
+            repo = CommitmentRepository(session)
+            service = CommitmentService(repo, OccurrenceGenerator(repo))
+
+            payloads = [
+                CommitmentCreate(
+                    title=title,
+                    type="subscription",
+                    category="entertainment",
+                    amount=Decimal("9.99"),
+                    frequency="monthly",
+                    starts_on=TODAY + timedelta(days=3),
+                )
+                for title in ("Netflix", "Spotify", "Crave")
+            ]
+            created = await service.create_many(user_id, payloads)
+            stored = await repo.list_for_user(user_id)
+            return len(created), len(stored)
+
+        created, stored = session_runner(work)
+        assert created == 3
+        assert stored == 3

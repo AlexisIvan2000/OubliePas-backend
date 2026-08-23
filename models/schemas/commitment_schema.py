@@ -18,6 +18,7 @@ CommitmentStatus = Literal["active", "paused", "archived"]
 OccurrenceStatus = Literal["pending", "paid", "skipped"]
 
 MAX_AMOUNT = Decimal("99999999.99")
+MAX_BATCH_ITEMS = 25
 MAX_NOTES_LENGTH = 1000
 UPCOMING_DAYS = 14
 MAX_UPCOMING = 8
@@ -58,6 +59,10 @@ class CommitmentCreate(BaseModel):
         if self.trial_ends_on is not None and self.trial_ends_on > self.starts_on:
             raise ValueError("trial_ends_on must be on or before starts_on")
         return self
+
+
+class CommitmentBatch(BaseModel):
+    items: list[CommitmentCreate] = Field(min_length=1, max_length=MAX_BATCH_ITEMS)
 
 
 class CommitmentUpdate(BaseModel):
