@@ -239,6 +239,73 @@ class TestSelection:
         assert report["skipped"] == 1
         assert reminders() == []
 
+    def test_respects_the_account_wide_switch(self, client, token, run_job, reminders, db):
+        due = today_utc() + timedelta(days=2)
+        client.post(
+            "/v1/commitments",
+            json=netflix(starts_on=due.isoformat(), reminder_days_before=3),
+            headers=auth(token),
+        )
+        client.patch(
+            "/v1/users/me", json={"reminder_email_enabled": False}, headers=auth(token)
+        )
+
+        report = run_job()
+
+        assert reminders() == []
+        assert report["skipped"] == 1
+        assert kinds(db) == []
+
+    def test_switching_it_back_on_restores_the_reminder(
+        self, client, token, run_job, reminders
+    ):
+        due = today_utc() + timedelta(days=2)
+        client.post(
+            "/v1/commitments",
+            json=netflix(starts_on=due.isoformat(), reminder_days_before=3),
+            headers=auth(token),
+        )
+        client.patch(
+            "/v1/users/me", json={"reminder_email_enabled": False}, headers=auth(token)
+        )
+        run_job()
+        assert reminders() == []
+
+        client.patch(
+            "/v1/users/me", json={"reminder_email_enabled": True}, headers=auth(token)
+        )
+        run_job()
+
+        assert len(reminders()) == 1
+
+    def test_the_switch_also_silences_the_relance(self, client, token, run_job, relances, db):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        make_late(db, 4)
+        client.patch(
+            "/v1/users/me", json={"reminder_email_enabled": False}, headers=auth(token)
+        )
+
+        run_job()
+
+        assert relances() == []
+
+    def test_the_switch_also_silences_the_action_warning(
+        self, client, token, run_job, actions
+    ):
+        charge = today_utc() + timedelta(days=3)
+        client.post(
+            "/v1/commitments",
+            json=netflix(starts_on=charge.isoformat(), trial_ends_on=charge.isoformat()),
+            headers=auth(token),
+        )
+        client.patch(
+            "/v1/users/me", json={"reminder_email_enabled": False}, headers=auth(token)
+        )
+
+        run_job()
+
+        assert actions() == []
+
     def test_a_skipped_account_stays_eligible_later(
         self, client, token, run_job, reminders, db, credentials
     ):

@@ -79,3 +79,4 @@ class UserResponse(BaseModel):
     has_custom_avatar: bool = False
     has_password: bool = False
     currency: str = DEFAULT_CURRENCY
+    reminder_email_enabled: bool = True

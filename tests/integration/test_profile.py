@@ -30,6 +30,59 @@ class TestGetProfile:
         assert client.get("/v1/users/me").status_code == 401
 
 
+class TestReminderSwitch:
+    def test_is_on_for_a_new_account(self, client, token):
+        body = client.get("/v1/users/me", headers=auth(token)).json()
+        assert body["reminder_email_enabled"] is True
+
+    def test_can_be_switched_off(self, client, token, db, verified):
+        response = client.patch(
+            "/v1/users/me",
+            json={"reminder_email_enabled": False},
+            headers=auth(token),
+        )
+        assert response.status_code == 200
+
+        body = client.get("/v1/users/me", headers=auth(token)).json()
+        assert body["reminder_email_enabled"] is False
+
+        rows = db(
+            "SELECT reminder_email_enabled FROM users WHERE email = :email",
+            email=verified["email"],
+        )
+        assert rows[0][0] is False
+
+    def test_can_be_switched_back_on(self, client, token):
+        client.patch(
+            "/v1/users/me", json={"reminder_email_enabled": False}, headers=auth(token)
+        )
+        client.patch(
+            "/v1/users/me", json={"reminder_email_enabled": True}, headers=auth(token)
+        )
+
+        body = client.get("/v1/users/me", headers=auth(token)).json()
+        assert body["reminder_email_enabled"] is True
+
+    def test_switching_it_off_leaves_the_rest_alone(self, client, token, verified):
+        client.patch(
+            "/v1/users/me", json={"reminder_email_enabled": False}, headers=auth(token)
+        )
+
+        body = client.get("/v1/users/me", headers=auth(token)).json()
+        assert body["first_name"] == verified["first_name"]
+        assert body["currency"] == "CAD"
+
+    def test_another_account_is_untouched(self, client, token, db, verified):
+        client.patch(
+            "/v1/users/me", json={"reminder_email_enabled": False}, headers=auth(token)
+        )
+
+        rows = db(
+            "SELECT count(*) FROM users WHERE reminder_email_enabled IS false"
+        )
+        assert rows[0][0] == 1
+
+
 class TestUpdateProfile:
     def test_updates_the_given_fields(self, client, token, db, verified):
         response = client.patch(

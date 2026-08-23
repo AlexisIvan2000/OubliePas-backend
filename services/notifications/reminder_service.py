@@ -73,7 +73,12 @@ class ReminderService:
 
         for user_id, rows in grouped.items():
             user = await self.auth_repo.get_user_by_id(user_id)
-            if user is None or not user.is_active or not user.is_verified:
+            if (
+                user is None
+                or not user.is_active
+                or not user.is_verified
+                or not user.reminder_email_enabled
+            ):
                 report["skipped"] += len(rows)
                 continue
 

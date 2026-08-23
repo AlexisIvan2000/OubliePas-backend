@@ -15,4 +15,5 @@ def user_response(user: User) -> UserResponse:
         has_custom_avatar=bool(user.avatar_key),
         has_password=bool(user.password_hash),
         currency=user.currency,
+        reminder_email_enabled=user.reminder_email_enabled,
     )
