@@ -11,7 +11,7 @@ REAL_SEND = EmailSender.send_reminder_email
 pytestmark = pytest.mark.unit
 
 
-def render(items, currency="CAD", first_name="Alexis"):
+def render(items, currency="CAD", first_name="Alexis", locale="fr"):
     captured = {}
 
     async def fake_send(self, params):
@@ -21,7 +21,14 @@ def render(items, currency="CAD", first_name="Alexis"):
     sender = EmailSender()
     sender._send = fake_send.__get__(sender, EmailSender)
     asyncio.run(
-        REAL_SEND(sender, "alexis@example.com", first_name=first_name, items=items, currency=currency)
+        REAL_SEND(
+            sender,
+            "alexis@example.com",
+            first_name=first_name,
+            items=items,
+            currency=currency,
+            locale=locale,
+        )
     )
     return captured
 
@@ -60,16 +67,42 @@ class TestBody:
         assert "Netflix" in body
         assert "Spotify" in body
 
-    def test_formats_the_amount_with_the_currency(self):
-        body = render([item(amount=Decimal("42.5"))])["html"]
+    def test_formats_the_amount_in_french(self):
+        body = render([item(amount=Decimal("1042.5"))])["html"]
 
-        assert "42.50 CAD" in body
+        assert "1\u00a0042,50\u00a0CAD" in body
 
-    def test_formats_the_due_date(self):
-        assert "04/08/2026" in render([item()])["html"]
+    def test_formats_the_amount_in_english(self):
+        body = render([item(amount=Decimal("1042.5"))], locale="en")["html"]
+
+        assert "1,042.50 CAD" in body
+
+    def test_formats_the_due_date_in_french(self):
+        assert "4 ao\u00fbt 2026" in render([item()])["html"]
+
+    def test_formats_the_due_date_in_english(self):
+        assert "Aug 4, 2026" in render([item()], locale="en")["html"]
 
     def test_greets_the_user(self):
         assert "Bonjour Alexis," in render([item()])["html"]
+
+    def test_greets_the_user_in_english(self):
+        assert "Hi Alexis," in render([item()], locale="en")["html"]
+
+    def test_carries_a_plain_text_alternative(self):
+        captured = render([item()])
+
+        assert "Netflix" in captured["text"]
+        assert "<div" not in captured["text"]
+
+    def test_carries_an_unsubscribe_header(self):
+        captured = render([item()])
+
+        assert captured["headers"]["List-Unsubscribe"].startswith("<http")
+        assert captured["headers"]["List-Unsubscribe"].endswith("/rappels>")
+
+    def test_an_unknown_locale_falls_back_to_french(self):
+        assert "Bonjour Alexis," in render([item()], locale="de")["html"]
 
     def test_recipient(self):
         assert render([item()])["to"] == ["alexis@example.com"]

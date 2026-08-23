@@ -239,6 +239,31 @@ class TestSelection:
         assert report["skipped"] == 1
         assert reminders() == []
 
+    def test_writes_in_the_account_language(self, client, token, run_job, reminders):
+        due = today_utc() + timedelta(days=2)
+        client.post(
+            "/v1/commitments",
+            json=netflix(starts_on=due.isoformat(), reminder_days_before=3),
+            headers=auth(token),
+        )
+        client.patch("/v1/users/me", json={"locale": "en"}, headers=auth(token))
+
+        run_job()
+
+        assert reminders()[0]["locale"] == "en"
+
+    def test_falls_back_to_french(self, client, token, run_job, reminders):
+        due = today_utc() + timedelta(days=2)
+        client.post(
+            "/v1/commitments",
+            json=netflix(starts_on=due.isoformat(), reminder_days_before=3),
+            headers=auth(token),
+        )
+
+        run_job()
+
+        assert reminders()[0]["locale"] == "fr"
+
     def test_respects_the_account_wide_switch(self, client, token, run_job, reminders, db):
         due = today_utc() + timedelta(days=2)
         client.post(
@@ -768,7 +793,7 @@ class TestFailure:
 
         working = EmailSender.send_reminder_email
 
-        async def boom(self, to, *, first_name, items, currency):
+        async def boom(self, to, *, first_name, items, currency, locale="fr"):
             raise RuntimeError("resend is down")
 
         EmailSender.send_reminder_email = boom
@@ -805,11 +830,18 @@ class TestFailure:
         working = EmailSender.send_reminder_email
         seen = []
 
-        async def flaky(self, to, *, first_name, items, currency):
+        async def flaky(self, to, *, first_name, items, currency, locale="fr"):
             seen.append(to)
             if len(seen) == 1:
                 raise RuntimeError("resend is down")
-            return await working(self, to, first_name=first_name, items=items, currency=currency)
+            return await working(
+                self,
+                to,
+                first_name=first_name,
+                items=items,
+                currency=currency,
+                locale=locale,
+            )
 
         EmailSender.send_reminder_email = flaky
         try:

@@ -55,6 +55,7 @@ class ReminderService:
             first_name=user.first_name,
             items=self._items(kind, entries, reference),
             currency=user.currency,
+            locale=user.locale,
         )
 
     async def _dispatch(

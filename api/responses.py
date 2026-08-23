@@ -17,4 +17,5 @@ def user_response(user: User) -> UserResponse:
         currency=user.currency,
         reminder_email_enabled=user.reminder_email_enabled,
         default_reminder_days=user.default_reminder_days,
+        locale=user.locale,
     )

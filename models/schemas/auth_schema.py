@@ -1,8 +1,10 @@
 import re
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from core.validators import normalize_currency
+from models.db.user_db import DEFAULT_LOCALE
 
 DEFAULT_CURRENCY = "CAD"
 
@@ -12,6 +14,7 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
     currency: str = Field(default=DEFAULT_CURRENCY, min_length=3, max_length=3)
+    locale: Literal["fr", "en"] = DEFAULT_LOCALE
 
     @field_validator("currency")
     def validate_currency(cls, value: str) -> str:
@@ -81,3 +84,4 @@ class UserResponse(BaseModel):
     currency: str = DEFAULT_CURRENCY
     reminder_email_enabled: bool = True
     default_reminder_days: int = 3
+    locale: str = DEFAULT_LOCALE

@@ -94,7 +94,7 @@ def mailbox(monkeypatch):
         sent.append({"kind": "admin", "to": to, "subject": subject})
         return {"id": "test"}
 
-    async def capture_reminder(self, to, *, first_name, items, currency):
+    async def capture_reminder(self, to, *, first_name, items, currency, locale="fr"):
         sent.append(
             {
                 "kind": "reminder",
@@ -102,11 +102,12 @@ def mailbox(monkeypatch):
                 "first_name": first_name,
                 "items": items,
                 "currency": currency,
+                "locale": locale,
             }
         )
         return {"id": "test"}
 
-    async def capture_overdue(self, to, *, first_name, items, currency):
+    async def capture_overdue(self, to, *, first_name, items, currency, locale="fr"):
         sent.append(
             {
                 "kind": "overdue",
@@ -114,11 +115,12 @@ def mailbox(monkeypatch):
                 "first_name": first_name,
                 "items": items,
                 "currency": currency,
+                "locale": locale,
             }
         )
         return {"id": "test"}
 
-    async def capture_action(self, to, *, first_name, items, currency):
+    async def capture_action(self, to, *, first_name, items, currency, locale="fr"):
         sent.append(
             {
                 "kind": "action",
@@ -126,6 +128,7 @@ def mailbox(monkeypatch):
                 "first_name": first_name,
                 "items": items,
                 "currency": currency,
+                "locale": locale,
             }
         )
         return {"id": "test"}

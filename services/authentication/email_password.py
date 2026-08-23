@@ -51,6 +51,7 @@ class EmailPasswordAuth:
             "email": email,
             "password_hash": password_hash,
             "currency": user.currency,
+            "locale": user.locale,
         })
         await self.otp_svc.send_verification_otp(email, str(new_user.id))
 

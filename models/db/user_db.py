@@ -9,6 +9,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from models.db.base import Base
 from models.db.commitments_db import DEFAULT_REMINDER_DAYS, MAX_REMINDER_DAYS
 
+LOCALES = ("fr", "en")
+DEFAULT_LOCALE = "fr"
+
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (
@@ -16,6 +19,10 @@ class User(Base):
         CheckConstraint(
             f"default_reminder_days BETWEEN 0 AND {MAX_REMINDER_DAYS}",
             name="users_reminder_days_check",
+        ),
+        CheckConstraint(
+            "locale IN (" + ", ".join(repr(code) for code in LOCALES) + ")",
+            name="users_locale_check",
         ),
     )
 
@@ -45,6 +52,11 @@ class User(Base):
         Integer,
         default=DEFAULT_REMINDER_DAYS,
         server_default=sa.text(str(DEFAULT_REMINDER_DAYS)),
+    )
+    locale: Mapped[str] = mapped_column(
+        String(5),
+        default=DEFAULT_LOCALE,
+        server_default=sa.text(f"'{DEFAULT_LOCALE}'"),
     )
     google_sub: Mapped[str | None] = mapped_column(String(255), unique=True, index=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

@@ -1,4 +1,5 @@
 import re
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, HttpUrl, field_validator
 
@@ -28,6 +29,7 @@ class UpdateProfile(BaseModel):
     avatar_url: HttpUrl | None = None
     reminder_email_enabled: bool | None = None
     default_reminder_days: int | None = Field(default=None, ge=0, le=MAX_REMINDER_DAYS)
+    locale: Literal["fr", "en"] | None = None
 
     @field_validator("avatar_url")
     @classmethod

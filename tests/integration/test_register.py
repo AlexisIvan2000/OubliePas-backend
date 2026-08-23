@@ -89,6 +89,36 @@ def test_failed_registration_sends_no_email(client, credentials, mailbox):
     assert mailbox == []
 
 
+class TestLocale:
+    def test_defaults_to_french(self, client, db):
+        payload = {"first_name": "Alexis", "email": "loc@example.com", "password": "MotDePasse1!"}
+        assert client.post("/v1/auth/register", json=payload).status_code == 201
+
+        rows = db("SELECT locale FROM users WHERE email = :email", email=payload["email"])
+        assert rows[0][0] == "fr"
+
+    def test_keeps_the_language_chosen_at_signup(self, client, db):
+        payload = {
+            "first_name": "Sophie",
+            "email": "loc2@example.com",
+            "password": "MotDePasse1!",
+            "locale": "en",
+        }
+        assert client.post("/v1/auth/register", json=payload).status_code == 201
+
+        rows = db("SELECT locale FROM users WHERE email = :email", email=payload["email"])
+        assert rows[0][0] == "en"
+
+    def test_refuses_an_unsupported_language(self, client):
+        payload = {
+            "first_name": "Marc",
+            "email": "loc3@example.com",
+            "password": "MotDePasse1!",
+            "locale": "de",
+        }
+        assert client.post("/v1/auth/register", json=payload).status_code == 422
+
+
 class TestRegistrationCurrency:
     def test_currency_defaults_to_cad_when_omitted(self, client, credentials, db):
         client.post("/v1/auth/register", json=credentials)

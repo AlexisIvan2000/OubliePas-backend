@@ -4,6 +4,8 @@ from functools import partial
 from typing import Dict
 
 import resend
+
+from services.emailing import messages
 from core.config import (
     FRONTEND_URL,
     RESEND_API_KEY,
@@ -22,35 +24,94 @@ def _plain_text_to_html_paragraphs(text: str) -> str:
     )
 
 
-def _late_label(days_left: int) -> str:
-    late = -days_left
-    if late == 1:
-        return "en retard d'un jour"
-    return f"en retard de {late} jours"
+SHELL = """
+                <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px; color: #333;">
+                    <h2 style="color: #0D9488; text-align: center; font-size: 22px; margin-top: 0;">OubliePas</h2>
+                    <p>{greeting}</p>
+                    <p>{intro}</p>
+                    <table style="width: 100%; border-collapse: collapse; margin: 24px 0;">{rows}</table>
+                    {extra}
+                    <p style="color: #888; font-size: 12px; text-align: center; margin: 0;">
+                        {footer}<br/>
+                        <a href="{settings}" style="color: #0D9488;">{unsubscribe}</a> &middot; {no_reply}
+                    </p>
+                </div>
+            """
 
 
-def _action_lines(item: dict, currency: str) -> tuple[str, str]:
-    amount = f"{item['amount']:.2f} {html.escape(currency)}"
-    deadline = item["deadline"].strftime("%d/%m/%Y")
-    due = item["due_date"].strftime("%d/%m/%Y")
-
-    if item["reason"] == "trial":
-        return (
-            f"Essai gratuit jusqu'au {deadline}",
-            f"Sans action de ta part, le prélèvement de {amount} commence le {due}.",
-        )
+def _button(href: str, label: str) -> str:
     return (
-        f"Renouvellement le {due} pour {amount}",
-        f"Pour annuler, tu dois aviser avant le {deadline}.",
+        '<div style="text-align: center; margin: 28px 0;">'
+        f'<a href="{html.escape(href)}" style="background-color: #0D9488; color: #ffffff;'
+        ' padding: 12px 28px; border-radius: 8px; text-decoration: none;'
+        f' display: inline-block;">{html.escape(label)}</a></div>'
     )
 
 
-def _due_label(days_left: int) -> str:
+def _row(title: str, meta: str, detail: str, amount: str, tone: str) -> str:
+    extra = (
+        f'<br/><span style="color: #888; font-size: 13px;">{html.escape(detail)}</span>'
+        if detail
+        else ""
+    )
+    right = (
+        '<td style="padding: 12px 0; border-bottom: 1px solid #eee; text-align: right;'
+        f' white-space: nowrap; color: #333;">{html.escape(amount)}</td>'
+        if amount
+        else ""
+    )
+    return f"""
+                        <tr>
+                            <td style="padding: 12px 0; border-bottom: 1px solid #eee;">
+                                <strong style="color: #333;">{html.escape(title)}</strong><br/>
+                                <span style="color: {tone}; font-size: 13px;">{html.escape(meta)}</span>{extra}
+                            </td>
+                            {right}
+                        </tr>
+            """
+
+
+def _wrap(locale: str, first_name: str, intro: str, rows, extra_html: str, footer: str):
+    settings = f"{FRONTEND_URL}/rappels"
+    greeting = messages.text(locale, "greeting", name=first_name)
+    body = SHELL.format(
+        greeting=html.escape(greeting),
+        intro=html.escape(intro),
+        rows="".join(_row(*row) for row in rows),
+        extra=extra_html,
+        footer=html.escape(footer),
+        settings=html.escape(settings),
+        unsubscribe=html.escape(messages.text(locale, "unsubscribe")),
+        no_reply=html.escape(messages.text(locale, "footer_no_reply")),
+    )
+
+    lines = [greeting, "", intro, ""]
+    for title, meta, detail, amount, _tone in rows:
+        lines.append(f"- {title} - {meta}" + (f" - {amount}" if amount else ""))
+        if detail:
+            lines.append(f"  {detail}")
+    lines += [
+        "",
+        messages.text(locale, "unsubscribe") + " : " + settings,
+        footer,
+        messages.text(locale, "footer_no_reply"),
+    ]
+    return body, "\n".join(lines)
+
+
+def _due_label(days_left: int, locale: str = "fr") -> str:
     if days_left <= 0:
-        return "aujourd'hui"
+        return messages.text(locale, "due_today")
     if days_left == 1:
-        return "demain"
-    return f"dans {days_left} jours"
+        return messages.text(locale, "due_tomorrow")
+    return messages.text(locale, "due_in_days", count=days_left)
+
+
+def _late_label(days_left: int, locale: str = "fr") -> str:
+    late = -days_left
+    if late == 1:
+        return messages.text(locale, "late_one_day")
+    return messages.text(locale, "late_days", count=late)
 
 
 class EmailSender:
@@ -130,142 +191,130 @@ class EmailSender:
         }
         return await self._send(params)
 
-    async def send_reminder_email(
-        self, to: str, *, first_name: str, items: list, currency: str
-    ) -> Dict:
-        count = len(items)
-        subject = f"{count} échéance{'s' if count > 1 else ''} à venir"
-
-        rows = "".join(
-            f"""
-                        <tr>
-                            <td style="padding: 12px 0; border-bottom: 1px solid #eee;">
-                                <strong style="color: #333;">{html.escape(str(item["title"]))}</strong><br/>
-                                <span style="color: #888; font-size: 13px;">{_due_label(item["days_left"])} &middot; {item["due_date"].strftime("%d/%m/%Y")}</span>
-                            </td>
-                            <td style="padding: 12px 0; border-bottom: 1px solid #eee; text-align: right; white-space: nowrap; color: #333;">
-                                {item["amount"]:.2f} {html.escape(currency)}
-                            </td>
-                        </tr>
-            """
-            for item in items
-        )
-
-        body = f"""
-                <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px; color: #333;">
-                    <h2 style="color: #0D9488; text-align: center; font-size: 22px; margin-top: 0;">OubliePas</h2>
-                    <p>Bonjour {html.escape(first_name)},</p>
-                    <p>Voici {'vos' if count > 1 else 'votre'} prochaine{'s' if count > 1 else ''} échéance{'s' if count > 1 else ''} :</p>
-                    <table style="width: 100%; border-collapse: collapse; margin: 24px 0;">{rows}</table>
-                    <p style="color: #888; font-size: 12px; text-align: center; margin: 0;">
-                        Vous recevez ce message parce que les rappels sont actifs sur ces engagements.<br/>
-                        Ne pas répondre directement à cet email.
-                    </p>
-                </div>
-            """
-        params = {
+    def _reminder_params(self, to: str, subject: str, body: str, plain: str) -> Dict:
+        return {
             "from": f"{RESEND_FROM_NAME} <{RESEND_FROM_EMAIL}>",
             "to": [to],
             "subject": subject,
             "html": body,
+            "text": plain,
+            "headers": {"List-Unsubscribe": f"<{FRONTEND_URL}/rappels>"},
         }
-        return await self._send(params)
+
+    async def send_reminder_email(
+        self, to: str, *, first_name: str, items: list, currency: str, locale: str = "fr"
+    ) -> Dict:
+        locale = messages.pick(locale)
+        count = len(items)
+        subject = messages.text(
+            locale,
+            messages.plural(count, "notice_subject_one", "notice_subject_many"),
+            count=count,
+        )
+        rows = [
+            (
+                str(item["title"]),
+                f"{_due_label(item['days_left'], locale)} - {messages.day(item['due_date'], locale)}",
+                "",
+                messages.money(item["amount"], currency, locale),
+                "#888",
+            )
+            for item in items
+        ]
+        body, plain = _wrap(
+            locale,
+            first_name,
+            messages.text(locale, messages.plural(count, "notice_intro_one", "notice_intro_many")),
+            rows,
+            "",
+            messages.text(locale, "footer_why"),
+        )
+        return await self._send(self._reminder_params(to, subject, body, plain))
 
     async def send_overdue_email(
-        self, to: str, *, first_name: str, items: list, currency: str
+        self, to: str, *, first_name: str, items: list, currency: str, locale: str = "fr"
     ) -> Dict:
+        locale = messages.pick(locale)
         count = len(items)
-        plural = "s" if count > 1 else ""
-        subject = f"{count} échéance{plural} en retard"
-
-        rows = "".join(
-            f"""
-                        <tr>
-                            <td style="padding: 12px 0; border-bottom: 1px solid #eee;">
-                                <strong style="color: #333;">{html.escape(str(item["title"]))}</strong><br/>
-                                <span style="color: #b45309; font-size: 13px;">{_late_label(item["days_left"])} &middot; {item["due_date"].strftime("%d/%m/%Y")}</span>
-                            </td>
-                            <td style="padding: 12px 0; border-bottom: 1px solid #eee; text-align: right; white-space: nowrap; color: #333;">
-                                {item["amount"]:.2f} {html.escape(currency)}
-                            </td>
-                        </tr>
-            """
-            for item in items
+        subject = messages.text(
+            locale,
+            messages.plural(count, "overdue_subject_one", "overdue_subject_many"),
+            count=count,
         )
-
-        body = f"""
-                <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px; color: #333;">
-                    <h2 style="color: #0D9488; text-align: center; font-size: 22px; margin-top: 0;">OubliePas</h2>
-                    <p>Bonjour {html.escape(first_name)},</p>
-                    <p>{"Ces échéances sont passées" if count > 1 else "Cette échéance est passée"} et {"restent" if count > 1 else "reste"} en attente :</p>
-                    <table style="width: 100%; border-collapse: collapse; margin: 24px 0;">{rows}</table>
-                    <p>Déjà payé{plural} ? Pas {"ces mois-ci" if count > 1 else "ce mois-ci"} ? Ou simplement oublié{plural} ? Mettez {"-les" if count > 1 else "-la"} à jour en un geste.</p>
-                    <div style="text-align: center; margin: 28px 0;">
-                        <a href="{html.escape(FRONTEND_URL)}/calendrier" style="background-color: #0D9488; color: #ffffff; padding: 12px 28px; border-radius: 8px; text-decoration: none; display: inline-block;">Mettre à jour</a>
-                    </div>
-                    <p style="color: #888; font-size: 12px; text-align: center; margin: 0;">
-                        Ce rappel de retard n'est envoyé qu'une seule fois par échéance.<br/>
-                        Ne pas répondre directement à cet email.
-                    </p>
-                </div>
-            """
-        params = {
-            "from": f"{RESEND_FROM_NAME} <{RESEND_FROM_EMAIL}>",
-            "to": [to],
-            "subject": subject,
-            "html": body,
-        }
-        return await self._send(params)
+        rows = [
+            (
+                str(item["title"]),
+                f"{_late_label(item['days_left'], locale)} - {messages.day(item['due_date'], locale)}",
+                "",
+                messages.money(item["amount"], currency, locale),
+                "#b45309",
+            )
+            for item in items
+        ]
+        question = messages.text(
+            locale, messages.plural(count, "overdue_question_one", "overdue_question_many")
+        )
+        extra = f"<p>{html.escape(question)}</p>" + _button(
+            f"{FRONTEND_URL}/calendrier", messages.text(locale, "overdue_cta")
+        )
+        body, plain = _wrap(
+            locale,
+            first_name,
+            messages.text(locale, messages.plural(count, "overdue_intro_one", "overdue_intro_many")),
+            rows,
+            extra,
+            messages.text(locale, "overdue_once"),
+        )
+        return await self._send(self._reminder_params(to, subject, body, plain))
 
     async def send_action_email(
-        self, to: str, *, first_name: str, items: list, currency: str
+        self, to: str, *, first_name: str, items: list, currency: str, locale: str = "fr"
     ) -> Dict:
+        locale = messages.pick(locale)
         count = len(items)
         first = items[0]
 
         if count > 1:
-            subject = f"{count} décisions à prendre"
+            subject = messages.text(locale, "action_subject_many", count=count)
         elif first["reason"] == "trial":
-            subject = f"Ton essai {first['title']} se termine {_due_label(first['days_left'])}"
+            subject = messages.text(
+                locale,
+                "action_subject_trial",
+                title=first["title"],
+                when=_due_label(first["days_left"], locale),
+            )
         else:
-            subject = f"{first['title']} se renouvelle le {first['due_date'].strftime('%d/%m/%Y')}"
+            subject = messages.text(
+                locale,
+                "action_subject_cancel",
+                title=first["title"],
+                date=messages.day(first["due_date"], locale),
+            )
 
-        rows = ""
+        rows = []
         for item in items:
-            headline, detail = _action_lines(item, currency)
-            rows += f"""
-                        <tr>
-                            <td style="padding: 14px 0; border-bottom: 1px solid #eee;">
-                                <strong style="color: #333;">{html.escape(str(item["title"]))}</strong>
-                                <span style="color: #0D9488; font-size: 13px; font-weight: 600;">&middot; {_due_label(item["days_left"])}</span><br/>
-                                <span style="color: #555; font-size: 13px;">{headline}</span><br/>
-                                <span style="color: #888; font-size: 13px;">{detail}</span>
-                            </td>
-                        </tr>
-            """
+            amount = messages.money(item["amount"], currency, locale)
+            deadline = messages.day(item["deadline"], locale)
+            due = messages.day(item["due_date"], locale)
+            if item["reason"] == "trial":
+                headline = messages.text(locale, "trial_headline", date=deadline)
+                detail = messages.text(locale, "trial_detail", amount=amount, date=due)
+            else:
+                headline = messages.text(locale, "cancel_headline", date=due, amount=amount)
+                detail = messages.text(locale, "cancel_detail", date=deadline)
+            meta = f"{headline} - {_due_label(item['days_left'], locale)}"
+            rows.append((str(item["title"]), meta, detail, "", "#0D9488"))
 
-        body = f"""
-                <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px; color: #333;">
-                    <h2 style="color: #0D9488; text-align: center; font-size: 22px; margin-top: 0;">OubliePas</h2>
-                    <p>Bonjour {html.escape(first_name)},</p>
-                    <p>{"Voici les échéances qui demandent une décision de ta part" if count > 1 else "Il y a une décision à prendre"}, avant qu'il ne soit trop tard :</p>
-                    <table style="width: 100%; border-collapse: collapse; margin: 24px 0;">{rows}</table>
-                    <div style="text-align: center; margin: 28px 0;">
-                        <a href="{html.escape(FRONTEND_URL)}" style="background-color: #0D9488; color: #ffffff; padding: 12px 28px; border-radius: 8px; text-decoration: none; display: inline-block;">Ouvrir OubliePas</a>
-                    </div>
-                    <p style="color: #888; font-size: 12px; text-align: center; margin: 0;">
-                        Ce rappel n'est envoyé qu'une seule fois par échéance.<br/>
-                        Ne pas répondre directement à cet email.
-                    </p>
-                </div>
-            """
-        params = {
-            "from": f"{RESEND_FROM_NAME} <{RESEND_FROM_EMAIL}>",
-            "to": [to],
-            "subject": subject,
-            "html": body,
-        }
-        return await self._send(params)
+        extra = _button(FRONTEND_URL, messages.text(locale, "open_app"))
+        body, plain = _wrap(
+            locale,
+            first_name,
+            messages.text(locale, messages.plural(count, "action_intro_one", "action_intro_many")),
+            rows,
+            extra,
+            messages.text(locale, "action_once"),
+        )
+        return await self._send(self._reminder_params(to, subject, body, plain))
 
     async def send_email_change_email(self, to: str, code: str) -> Dict:
         subject = "Email change verification"

@@ -3,6 +3,32 @@ import os
 
 load_dotenv()
 
+SAMESITE_VALUES = ("lax", "strict", "none")
+
+
+def check_cookie_policy(samesite: str, secure: bool) -> None:
+    if samesite not in SAMESITE_VALUES:
+        raise RuntimeError(
+            f"COOKIE_SAMESITE must be one of {', '.join(SAMESITE_VALUES)}, "
+            f"got {samesite!r}. A value the browser does not understand makes it "
+            f"drop the refresh cookie without a word."
+        )
+    if samesite == "none" and not secure:
+        raise RuntimeError(
+            "COOKIE_SAMESITE=none requires COOKIE_SECURE=true: browsers refuse a "
+            "cross-site cookie that is not Secure, and they refuse it silently. "
+            "Serve the API over HTTPS and set COOKIE_SECURE=true."
+        )
+
+
+def check_cors_policy(origins: list[str]) -> None:
+    if "*" in origins:
+        raise RuntimeError(
+            "CORS_ORIGINS cannot be '*' while credentials are allowed: browsers "
+            "reject that combination. List the exact front-end origins instead."
+        )
+
+
 def _require(name: str) -> str:
     value = os.getenv(name)
     if not value:
@@ -45,6 +71,8 @@ CORS_ORIGINS = [
     if origin.strip()
 ]
 
+check_cors_policy(CORS_ORIGINS)
+
 _DEV_ORIGIN_REGEX = r"^http://(localhost|127\.0\.0\.1)(:\d+)?$"
 
 CORS_ORIGIN_REGEX = os.getenv("CORS_ORIGIN_REGEX") or (_DEV_ORIGIN_REGEX if DEBUG else None)
@@ -54,6 +82,7 @@ REFRESH_COOKIE_PATH = "/v1/auth"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false" if DEBUG else "true").lower() in ("1", "true", "yes")
 COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "lax").lower()
 COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN") or None
+check_cookie_policy(COOKIE_SAMESITE, COOKIE_SECURE)
 
 REDIS_URL = os.getenv("REDIS_URL")
 
