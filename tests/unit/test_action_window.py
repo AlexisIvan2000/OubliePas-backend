@@ -142,3 +142,68 @@ class TestHorizon:
         from services.commitments.occurrence_generator import GENERATION_HORIZON_DAYS
 
         assert MAX_CANCELLATION_NOTICE_DAYS + MAX_REMINDER_DAYS <= GENERATION_HORIZON_DAYS
+class TestGenerationWindow:
+    """La fenetre de generation doit toujours contenir la prochaine echeance."""
+
+    @pytest.mark.parametrize(
+        "frequency,step_days",
+        [("weekly", 3), ("monthly", 7), ("quarterly", 11), ("yearly", 13)],
+    )
+    def test_at_least_one_occurrence_exists_any_day_of_the_cycle(self, frequency, step_days):
+        from services.commitments.occurrence_generator import horizon_days, occurrence_dates
+
+        start = date(2020, 1, 31)
+        window = horizon_days(frequency)
+        empty = []
+        for offset in range(0, 800, step_days):
+            today = date(2026, 1, 1) + timedelta(days=offset)
+            dates = occurrence_dates(
+                starts_on=start,
+                frequency=frequency,
+                ends_on=None,
+                floor=today,
+                horizon=today + timedelta(days=window),
+            )
+            if not dates:
+                empty.append(today)
+
+        assert empty == []
+
+    def test_a_yearly_commitment_keeps_a_date_far_from_its_anniversary(self):
+        from services.commitments.occurrence_generator import horizon_days, occurrence_dates
+
+        today = date(2026, 8, 24)
+        dates = occurrence_dates(
+            starts_on=date(2026, 7, 23),
+            frequency="yearly",
+            ends_on=None,
+            floor=today,
+            horizon=today + timedelta(days=horizon_days("yearly")),
+        )
+
+        assert dates[0] == date(2027, 7, 23)
+
+    def test_the_short_frequencies_keep_the_ninety_day_window(self):
+        from services.commitments.occurrence_generator import (
+            GENERATION_HORIZON_DAYS,
+            horizon_days,
+        )
+
+        assert horizon_days("weekly") == GENERATION_HORIZON_DAYS
+        assert horizon_days("monthly") == GENERATION_HORIZON_DAYS
+        assert horizon_days("oneoff") == GENERATION_HORIZON_DAYS
+
+    def test_an_ended_commitment_still_generates_nothing(self):
+        from services.commitments.occurrence_generator import horizon_days, occurrence_dates
+
+        today = date(2026, 8, 24)
+        dates = occurrence_dates(
+            starts_on=date(2020, 1, 1),
+            frequency="yearly",
+            ends_on=date(2025, 1, 1),
+            floor=today,
+            horizon=today + timedelta(days=horizon_days("yearly")),
+        )
+
+        assert dates == []
+

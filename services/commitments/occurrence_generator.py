@@ -6,7 +6,19 @@ from repositories.commitment_repository import CommitmentRepository
 
 MONTHS_BY_FREQUENCY = {"monthly": 1, "quarterly": 3, "yearly": 12}
 GENERATION_HORIZON_DAYS = 90
+HORIZON_MARGIN_DAYS = 30
+LONGEST_PERIOD_DAYS = {"weekly": 7, "monthly": 31, "quarterly": 92, "yearly": 366, "oneoff": 0}
 MAX_OCCURRENCES_PER_COMMITMENT = 60
+
+
+def horizon_days(frequency: str) -> int:
+    # La fenetre doit toujours couvrir au moins une periode entiere, sinon un
+    # engagement annuel n'a aucune occurrence en base pendant la majeure partie
+    # de l'annee et sa prochaine echeance ne s'affiche nulle part.
+    return max(
+        GENERATION_HORIZON_DAYS,
+        LONGEST_PERIOD_DAYS[frequency] + HORIZON_MARGIN_DAYS,
+    )
 
 
 def today_utc() -> date:
@@ -80,7 +92,7 @@ class OccurrenceGenerator:
             frequency=commitment.frequency,
             ends_on=commitment.ends_on,
             floor=today,
-            horizon=today + timedelta(days=GENERATION_HORIZON_DAYS),
+            horizon=today + timedelta(days=horizon_days(commitment.frequency)),
         )
         return [
             {

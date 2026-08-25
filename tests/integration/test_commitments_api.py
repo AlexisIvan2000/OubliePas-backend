@@ -722,3 +722,68 @@ class TestSummary:
 
         body = client.get("/v1/commitments/summary", headers=auth(token)).json()
         assert [row["category"] for row in body["by_category"]] == ["entertainment"]
+class TestLongCycleHorizon:
+    def test_a_yearly_commitment_started_last_month_still_shows_its_next_date(
+        self, client, token
+    ):
+        today = today_utc()
+        created = create(
+            client,
+            token,
+            netflix(
+                title="Adobe",
+                frequency="yearly",
+                starts_on=(today - timedelta(days=32)).isoformat(),
+            ),
+        )
+
+        assert created["next_due_date"] is not None
+        assert created["next_due_date"] > today.isoformat()
+
+    def test_a_quarterly_commitment_keeps_a_date_just_past_its_charge(self, client, token):
+        today = today_utc()
+        created = create(
+            client,
+            token,
+            netflix(
+                title="Assurance",
+                frequency="quarterly",
+                starts_on=(today - timedelta(days=1)).isoformat(),
+            ),
+        )
+
+        assert created["next_due_date"] is not None
+
+    def test_the_listing_agrees_with_the_creation(self, client, token):
+        today = today_utc()
+        created = create(
+            client,
+            token,
+            netflix(
+                title="Adobe",
+                frequency="yearly",
+                starts_on=(today - timedelta(days=32)).isoformat(),
+            ),
+        )
+
+        rows = client.get("/v1/commitments", headers=auth(token)).json()
+
+        assert rows[0]["next_due_date"] == created["next_due_date"]
+
+    def test_a_monthly_commitment_keeps_the_short_window(self, client, token):
+        today = today_utc()
+        create(client, token, netflix())
+
+        rows = client.get(
+            "/v1/commitments/occurrences",
+            params={
+                "start": today.isoformat(),
+                "end": (today + timedelta(days=395)).isoformat(),
+            },
+            headers=auth(token),
+        ).json()
+
+        assert all(
+            row["due_date"] <= (today + timedelta(days=90)).isoformat() for row in rows
+        )
+
