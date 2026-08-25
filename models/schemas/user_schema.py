@@ -28,6 +28,9 @@ class UpdateProfile(BaseModel):
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     avatar_url: HttpUrl | None = None
     reminder_email_enabled: bool | None = None
+    reminder_notice_enabled: bool | None = None
+    reminder_overdue_enabled: bool | None = None
+    reminder_action_enabled: bool | None = None
     default_reminder_days: int | None = Field(default=None, ge=0, le=MAX_REMINDER_DAYS)
     locale: Literal["fr", "en"] | None = None
 

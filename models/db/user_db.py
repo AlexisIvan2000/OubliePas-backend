@@ -48,6 +48,15 @@ class User(Base):
     reminder_email_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=sa.text("true")
     )
+    reminder_notice_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=sa.text("true")
+    )
+    reminder_overdue_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=sa.text("true")
+    )
+    reminder_action_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=sa.text("true")
+    )
     default_reminder_days: Mapped[int] = mapped_column(
         Integer,
         default=DEFAULT_REMINDER_DAYS,

@@ -853,3 +853,166 @@ class TestFailure:
         assert report["occurrences"] == 1
         assert report["users"] == 1
         assert len(reminders()) == 1
+class TestFamilySwitches:
+    def test_silencing_the_relance_keeps_the_notice(
+        self, client, token, run_job, reminders, relances
+    ):
+        due = today_utc() + timedelta(days=2)
+        client.post(
+            "/v1/commitments",
+            json=netflix(starts_on=due.isoformat(), reminder_days_before=3),
+            headers=auth(token),
+        )
+        client.patch(
+            "/v1/users/me", json={"reminder_overdue_enabled": False}, headers=auth(token)
+        )
+
+        run_job()
+
+        assert len(reminders()) == 1
+        assert relances() == []
+
+    def test_silencing_the_relance_leaves_a_late_occurrence_untouched(
+        self, client, token, run_job, relances, db
+    ):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        make_late(db, 4)
+        client.patch(
+            "/v1/users/me", json={"reminder_overdue_enabled": False}, headers=auth(token)
+        )
+
+        report = run_job()
+
+        assert relances() == []
+        assert report["skipped"] == 1
+        assert "overdue" not in kinds(db)
+
+    def test_turning_the_relance_back_on_sends_it(
+        self, client, token, run_job, relances, db
+    ):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        make_late(db, 4)
+        client.patch(
+            "/v1/users/me", json={"reminder_overdue_enabled": False}, headers=auth(token)
+        )
+        run_job()
+        assert relances() == []
+
+        client.patch(
+            "/v1/users/me", json={"reminder_overdue_enabled": True}, headers=auth(token)
+        )
+        run_job()
+
+        assert len(relances()) == 1
+
+    def test_silencing_the_notice_keeps_the_relance(
+        self, client, token, run_job, reminders, relances, db
+    ):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        make_late(db, 4)
+        client.patch(
+            "/v1/users/me", json={"reminder_notice_enabled": False}, headers=auth(token)
+        )
+
+        run_job()
+
+        assert reminders() == []
+        assert len(relances()) == 1
+
+    def test_silencing_the_action_family_keeps_the_others(
+        self, client, token, run_job, actions, reminders
+    ):
+        charge = today_utc() + timedelta(days=3)
+        client.post(
+            "/v1/commitments",
+            json=netflix(starts_on=charge.isoformat(), trial_ends_on=charge.isoformat()),
+            headers=auth(token),
+        )
+        client.patch(
+            "/v1/users/me", json={"reminder_action_enabled": False}, headers=auth(token)
+        )
+
+        run_job()
+
+        assert actions() == []
+        assert len(reminders()) == 1
+
+    def test_the_switches_default_to_on(self, client, token):
+        body = client.get("/v1/users/me", headers=auth(token)).json()
+
+        assert body["reminder_notice_enabled"] is True
+        assert body["reminder_overdue_enabled"] is True
+        assert body["reminder_action_enabled"] is True
+
+    def test_the_switches_survive_a_round_trip(self, client, token):
+        client.patch(
+            "/v1/users/me", json={"reminder_overdue_enabled": False}, headers=auth(token)
+        )
+
+        body = client.get("/v1/users/me", headers=auth(token)).json()
+
+        assert body["reminder_overdue_enabled"] is False
+        assert body["reminder_notice_enabled"] is True
+        assert body["reminder_email_enabled"] is True
+
+
+class TestLateFeed:
+    def test_lists_a_past_occurrence_left_pending(self, client, token, db):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        make_late(db, 5)
+
+        rows = client.get("/v1/commitments/occurrences/late", headers=auth(token)).json()
+
+        assert len(rows) == 1
+        assert rows[0]["title"] == "Netflix"
+        assert rows[0]["is_late"] is True
+
+    def test_ignores_an_occurrence_that_is_still_to_come(self, client, token):
+        due = today_utc() + timedelta(days=2)
+        client.post(
+            "/v1/commitments", json=netflix(starts_on=due.isoformat()), headers=auth(token)
+        )
+
+        rows = client.get("/v1/commitments/occurrences/late", headers=auth(token)).json()
+
+        assert rows == []
+
+    def test_drops_an_occurrence_once_it_is_settled(self, client, token, db):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        make_late(db, 5)
+        late = client.get("/v1/commitments/occurrences/late", headers=auth(token)).json()
+        client.patch(
+            f"/v1/commitments/occurrences/{late[0]['id']}",
+            json={"status": "paid"},
+            headers=auth(token),
+        )
+
+        rows = client.get("/v1/commitments/occurrences/late", headers=auth(token)).json()
+
+        assert rows == []
+
+    def test_never_leaks_another_account(self, client, token, other_token, db):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        make_late(db, 5)
+
+        rows = client.get(
+            "/v1/commitments/occurrences/late", headers=auth(other_token)
+        ).json()
+
+        assert rows == []
+
+    def test_matches_the_late_count_of_the_summary(self, client, token, db):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        client.post(
+            "/v1/commitments", json=netflix(title="Spotify"), headers=auth(token)
+        )
+        make_late(db, 6)
+
+        rows = client.get("/v1/commitments/occurrences/late", headers=auth(token)).json()
+        summary = client.get("/v1/commitments/summary", headers=auth(token)).json()
+
+        assert len(rows) == summary["late_count"] == 2
+
+    def test_needs_a_token(self, client):
+        assert client.get("/v1/commitments/occurrences/late").status_code == 401
+

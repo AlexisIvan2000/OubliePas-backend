@@ -33,6 +33,7 @@ CLEARABLE_FIELDS = frozenset(
 )
 ACTION_FIELDS = frozenset({"trial_ends_on", "cancellation_notice_days"})
 MAX_RANGE_DAYS = 400
+MAX_LATE_ROWS = 50
 CENTS = Decimal("0.01")
 
 
@@ -175,6 +176,11 @@ class CommitmentService:
         occurrences = await self.repo.list_occurrences(
             user_id, start=start, end=end, status=status
         )
+        return [self._occurrence_response(occurrence, today) for occurrence in occurrences]
+
+    async def list_late(self, user_id: str) -> list[OccurrenceResponse]:
+        today = today_utc()
+        occurrences = await self.repo.list_late(user_id, today, limit=MAX_LATE_ROWS)
         return [self._occurrence_response(occurrence, today) for occurrence in occurrences]
 
     async def update_occurrence(

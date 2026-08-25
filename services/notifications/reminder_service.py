@@ -14,6 +14,12 @@ NOTICE = "notice"
 OVERDUE = "overdue"
 ACTION = "action_required"
 
+FAMILY_SWITCH = {
+    NOTICE: "reminder_notice_enabled",
+    OVERDUE: "reminder_overdue_enabled",
+    ACTION: "reminder_action_enabled",
+}
+
 
 class ReminderService:
     def __init__(
@@ -79,6 +85,7 @@ class ReminderService:
                 or not user.is_active
                 or not user.is_verified
                 or not user.reminder_email_enabled
+                or not getattr(user, FAMILY_SWITCH[kind])
             ):
                 report["skipped"] += len(rows)
                 continue

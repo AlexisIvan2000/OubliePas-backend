@@ -203,6 +203,24 @@ class CommitmentRepository:
         )
         return {status: Decimal(total) for status, total in result.all()}
 
+    async def list_late(
+        self, user_id: str, on_date: date, *, limit: int | None = None
+    ) -> list[CommitmentOccurrence]:
+        query = (
+            select(CommitmentOccurrence)
+            .options(selectinload(CommitmentOccurrence.commitment))
+            .where(
+                CommitmentOccurrence.user_id == user_id,
+                CommitmentOccurrence.status == "pending",
+                CommitmentOccurrence.due_date < on_date,
+            )
+            .order_by(CommitmentOccurrence.due_date)
+        )
+        if limit is not None:
+            query = query.limit(limit)
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
+
     async def count_late(self, user_id: str, on_date: date) -> int:
         result = await self.session.execute(
             select(func.count())

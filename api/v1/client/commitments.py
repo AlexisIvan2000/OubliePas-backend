@@ -45,6 +45,11 @@ async def list_occurrences(
     )
 
 
+@router.get("/occurrences/late", response_model=list[OccurrenceResponse])
+async def list_late_occurrences(user: CurrentUserDep, service: CommitmentServiceDep):
+    return await service.list_late(str(user.id))
+
+
 @router.patch("/occurrences/{occurrence_id}", response_model=OccurrenceResponse)
 @limiter.limit("60/minute")
 async def update_occurrence(
