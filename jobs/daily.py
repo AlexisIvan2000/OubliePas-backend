@@ -2,11 +2,12 @@ import asyncio
 import json
 import logging
 import sys
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from models.db.commitments_db import PURGE_AFTER_DAYS
 from repositories.auth_repository import AuthRepository
 from repositories.commitment_repository import CommitmentRepository
 from services.commitments.occurrence_generator import OccurrenceGenerator, today_utc
@@ -22,6 +23,9 @@ async def run_daily(session: AsyncSession, *, today: date | None = None) -> dict
     reference = today or today_utc()
     repo = CommitmentRepository(session)
 
+    purged = await repo.purge_deleted(
+        datetime.now(timezone.utc) - timedelta(days=PURGE_AFTER_DAYS)
+    )
     generated = await OccurrenceGenerator(repo).sync_all_active(today=reference)
     await session.commit()
 
@@ -29,7 +33,12 @@ async def run_daily(session: AsyncSession, *, today: date | None = None) -> dict
         on_date=reference
     )
 
-    return {"date": reference.isoformat(), "occurrences_generated": generated, **reminders}
+    return {
+        "date": reference.isoformat(),
+        "occurrences_generated": generated,
+        "purged": purged,
+        **reminders,
+    }
 
 
 async def main() -> dict:

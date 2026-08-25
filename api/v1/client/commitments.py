@@ -5,7 +5,6 @@ from fastapi import APIRouter, Query, Request
 
 from api.dependencies import CommitmentServiceDep, CurrentUserDep
 from core.rate_limit import limiter
-from models.schemas.auth_schema import MessageResponse
 from models.schemas.commitment_schema import (
     CommitmentCreate,
     CommitmentResponse,
@@ -13,9 +12,12 @@ from models.schemas.commitment_schema import (
     CommitmentType,
     CommitmentUpdate,
     DashboardSummary,
+    DeletedCommitments,
     OccurrenceResponse,
     OccurrenceStatus,
     OccurrenceUpdate,
+    RestoredCount,
+    RestoreRequest,
 )
 from services.commitments.commitment_service import month_bounds
 from services.commitments.occurrence_generator import today_utc
@@ -72,6 +74,29 @@ async def list_commitments(
     return await service.list_commitments(str(user.id), commitment_type=type, status=status)
 
 
+@router.delete("", response_model=DeletedCommitments)
+@limiter.limit("6/minute")
+async def delete_all_commitments(
+    request: Request,
+    user: CurrentUserDep,
+    service: CommitmentServiceDep,
+    type: CommitmentType | None = Query(default=None),
+    status: CommitmentStatus | None = Query(default=None),
+):
+    return await service.delete_all(str(user.id), commitment_type=type, status=status)
+
+
+@router.post("/restore", response_model=RestoredCount)
+@limiter.limit("30/minute")
+async def restore_commitments(
+    request: Request,
+    payload: RestoreRequest,
+    user: CurrentUserDep,
+    service: CommitmentServiceDep,
+):
+    return await service.restore(str(user.id), list(payload.ids))
+
+
 @router.post("", response_model=CommitmentResponse, status_code=201)
 @limiter.limit("60/minute")
 async def create_commitment(
@@ -104,7 +129,7 @@ async def update_commitment(
     return await service.update(str(user.id), commitment_id, payload)
 
 
-@router.delete("/{commitment_id}", response_model=MessageResponse)
+@router.delete("/{commitment_id}", response_model=DeletedCommitments)
 @limiter.limit("30/minute")
 async def delete_commitment(
     request: Request,

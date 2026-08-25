@@ -1015,4 +1015,64 @@ class TestLateFeed:
 
     def test_needs_a_token(self, client):
         assert client.get("/v1/commitments/occurrences/late").status_code == 401
+class TestPurge:
+    def test_a_recent_deletion_is_kept(self, client, token, run_job, db):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        client.delete("/v1/commitments", headers=auth(token))
+
+        report = run_job()
+
+        assert report["purged"] == 0
+        assert db("select count(*) from commitments")[0][0] == 1
+
+    def test_an_old_deletion_is_wiped(self, client, token, run_job, db):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        client.delete("/v1/commitments", headers=auth(token))
+        db("update commitments set deleted_at = deleted_at - interval '31 days'")
+
+        report = run_job()
+
+        assert report["purged"] == 1
+        assert db("select count(*) from commitments")[0][0] == 0
+        assert db("select count(*) from commitment_occurrences")[0][0] == 0
+
+    def test_a_live_commitment_is_never_purged(self, client, token, run_job, db):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+
+        report = run_job()
+
+        assert report["purged"] == 0
+        assert db("select count(*) from commitments")[0][0] == 1
+
+    def test_a_deleted_commitment_sends_no_reminder(self, client, token, run_job, reminders):
+        due = today_utc() + timedelta(days=2)
+        client.post(
+            "/v1/commitments",
+            json=netflix(starts_on=due.isoformat(), reminder_days_before=3),
+            headers=auth(token),
+        )
+        client.delete("/v1/commitments", headers=auth(token))
+
+        report = run_job()
+
+        assert reminders() == []
+        assert report["occurrences"] == 0
+
+    def test_restoring_it_puts_the_reminder_back(self, client, token, run_job, reminders):
+        due = today_utc() + timedelta(days=2)
+        client.post(
+            "/v1/commitments",
+            json=netflix(starts_on=due.isoformat(), reminder_days_before=3),
+            headers=auth(token),
+        )
+        removed = client.delete("/v1/commitments", headers=auth(token)).json()
+        run_job()
+        assert reminders() == []
+
+        client.post(
+            "/v1/commitments/restore", json={"ids": removed["ids"]}, headers=auth(token)
+        )
+        run_job()
+
+        assert len(reminders()) == 1
 

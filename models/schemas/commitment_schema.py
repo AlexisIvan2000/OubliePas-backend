@@ -145,6 +145,19 @@ class OccurrenceResponse(BaseModel):
     is_late: bool
 
 
+class DeletedCommitments(BaseModel):
+    deleted: int
+    ids: list[str]
+
+
+class RestoreRequest(BaseModel):
+    ids: list[UUID] = Field(min_length=1, max_length=500)
+
+
+class RestoredCount(BaseModel):
+    restored: int
+
+
 class CategoryTotal(BaseModel):
     category: str
     total: Decimal

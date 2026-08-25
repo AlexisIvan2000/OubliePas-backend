@@ -32,6 +32,7 @@ MAX_REMINDER_DAYS = 30
 OVERDUE_REMINDER_DAYS = 3
 OVERDUE_REMINDER_WINDOW_DAYS = 30
 MIN_TRIAL_NOTICE_DAYS = 3
+PURGE_AFTER_DAYS = 30
 MAX_CANCELLATION_NOTICE_DAYS = 60
 
 
@@ -82,6 +83,9 @@ class Commitment(Base):
     is_reminder_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     status: Mapped[str] = mapped_column(String(20), default="active", index=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

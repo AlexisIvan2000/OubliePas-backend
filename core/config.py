@@ -92,6 +92,7 @@ RESEND_API_KEY = _require("RESEND_API_KEY")
 RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "hello@oubliepas.com")
 RESEND_FROM_NAME = os.getenv("RESEND_FROM_NAME", "OubliePas")
 RESEND_FROM_EMAIL_SUPPORT = os.getenv("RESEND_FROM_EMAIL_SUPPORT", "support@oubliepas.com")
+RESEND_FROM_EMAIL_REMINDER = os.getenv("RESEND_FROM_EMAIL_REMINDER", "reminder@oubliepas.com")
 
 API_S3 = os.getenv("API_S3")
 S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID")

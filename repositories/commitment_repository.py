@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import NamedTuple
 
-from sqlalchemy import case, delete, func, or_, select
+from sqlalchemy import case, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -34,12 +34,27 @@ class CommitmentRepository:
         await self.session.flush()
         return commitment
 
+    # Un engagement supprime reste en base 30 jours pour rendre l'annulation
+    # possible. Toutes les lectures passent par ces deux helpers : oublier le
+    # garde-fou sur une requete ferait reapparaitre ses montants dans les totaux.
+    def _live(self, user_id: str):
+        return select(Commitment).where(
+            Commitment.user_id == user_id,
+            Commitment.deleted_at.is_(None),
+        )
+
+    def _live_occurrences(self, user_id: str, *, columns=None):
+        base = select(CommitmentOccurrence) if columns is None else select(*columns)
+        return base.select_from(CommitmentOccurrence).join(
+            Commitment, Commitment.id == CommitmentOccurrence.commitment_id
+        ).where(
+            CommitmentOccurrence.user_id == user_id,
+            Commitment.deleted_at.is_(None),
+        )
+
     async def get_by_id(self, commitment_id: str, user_id: str) -> Commitment | None:
         result = await self.session.execute(
-            select(Commitment).where(
-                Commitment.id == commitment_id,
-                Commitment.user_id == user_id,
-            )
+            self._live(user_id).where(Commitment.id == commitment_id)
         )
         return result.scalar_one_or_none()
 
@@ -50,7 +65,7 @@ class CommitmentRepository:
         commitment_type: str | None = None,
         status: str | None = None,
     ) -> list[Commitment]:
-        query = select(Commitment).where(Commitment.user_id == user_id)
+        query = self._live(user_id)
         if commitment_type is not None:
             query = query.where(Commitment.type == commitment_type)
         if status is not None:
@@ -60,7 +75,9 @@ class CommitmentRepository:
 
     async def list_active(self) -> list[Commitment]:
         result = await self.session.execute(
-            select(Commitment).where(Commitment.status == "active").order_by(Commitment.created_at)
+            select(Commitment)
+            .where(Commitment.status == "active", Commitment.deleted_at.is_(None))
+            .order_by(Commitment.created_at)
         )
         return list(result.scalars().all())
 
@@ -73,15 +90,57 @@ class CommitmentRepository:
         await self.session.flush()
         return commitment
 
-    async def delete(self, commitment_id: str, user_id: str) -> bool:
+    async def delete(self, commitment_id: str, user_id: str) -> list[uuid.UUID]:
+        return await self._soft_delete(
+            self._live(user_id).where(Commitment.id == commitment_id)
+        )
+
+    async def delete_all(
+        self,
+        user_id: str,
+        *,
+        commitment_type: str | None = None,
+        status: str | None = None,
+    ) -> list[uuid.UUID]:
+        query = self._live(user_id)
+        if commitment_type is not None:
+            query = query.where(Commitment.type == commitment_type)
+        if status is not None:
+            query = query.where(Commitment.status == status)
+        return await self._soft_delete(query)
+
+    async def _soft_delete(self, query) -> list[uuid.UUID]:
+        rows = (await self.session.execute(query)).scalars().all()
+        stamp = datetime.now(timezone.utc)
+        for commitment in rows:
+            commitment.deleted_at = stamp
+        await self.session.flush()
+        return [commitment.id for commitment in rows]
+
+    async def restore(self, user_id: str, ids: list) -> int:
+        if not ids:
+            return 0
+        result = await self.session.execute(
+            update(Commitment)
+            .where(
+                Commitment.user_id == user_id,
+                Commitment.id.in_(ids),
+                Commitment.deleted_at.is_not(None),
+            )
+            .values(deleted_at=None)
+        )
+        await self.session.flush()
+        return result.rowcount
+
+    async def purge_deleted(self, before: datetime) -> int:
         result = await self.session.execute(
             delete(Commitment).where(
-                Commitment.id == commitment_id,
-                Commitment.user_id == user_id,
+                Commitment.deleted_at.is_not(None),
+                Commitment.deleted_at < before,
             )
         )
         await self.session.flush()
-        return result.rowcount > 0
+        return result.rowcount
 
     async def add_occurrences(self, rows: list[dict]) -> int:
         if not rows:
@@ -110,12 +169,9 @@ class CommitmentRepository:
         self, occurrence_id: str, user_id: str
     ) -> CommitmentOccurrence | None:
         result = await self.session.execute(
-            select(CommitmentOccurrence)
+            self._live_occurrences(user_id)
             .options(selectinload(CommitmentOccurrence.commitment))
-            .where(
-                CommitmentOccurrence.id == occurrence_id,
-                CommitmentOccurrence.user_id == user_id,
-            )
+            .where(CommitmentOccurrence.id == occurrence_id)
         )
         return result.scalar_one_or_none()
 
@@ -129,10 +185,9 @@ class CommitmentRepository:
         limit: int | None = None,
     ) -> list[CommitmentOccurrence]:
         query = (
-            select(CommitmentOccurrence)
+            self._live_occurrences(user_id)
             .options(selectinload(CommitmentOccurrence.commitment))
             .where(
-                CommitmentOccurrence.user_id == user_id,
                 CommitmentOccurrence.due_date >= start,
                 CommitmentOccurrence.due_date <= end,
             )
@@ -147,19 +202,29 @@ class CommitmentRepository:
 
     async def due_dates(self, user_id: str, floor: date) -> dict[uuid.UUID, DueDates]:
         result = await self.session.execute(
-            select(
-                CommitmentOccurrence.commitment_id,
-                func.min(
-                    case((CommitmentOccurrence.due_date >= floor, CommitmentOccurrence.due_date))
-                ),
-                func.min(
-                    case((CommitmentOccurrence.due_date < floor, CommitmentOccurrence.due_date))
+            self._live_occurrences(
+                user_id,
+                columns=(
+                    CommitmentOccurrence.commitment_id,
+                    func.min(
+                        case(
+                            (
+                                CommitmentOccurrence.due_date >= floor,
+                                CommitmentOccurrence.due_date,
+                            )
+                        )
+                    ),
+                    func.min(
+                        case(
+                            (
+                                CommitmentOccurrence.due_date < floor,
+                                CommitmentOccurrence.due_date,
+                            )
+                        )
+                    ),
                 ),
             )
-            .where(
-                CommitmentOccurrence.user_id == user_id,
-                CommitmentOccurrence.status == "pending",
-            )
+            .where(CommitmentOccurrence.status == "pending")
             .group_by(CommitmentOccurrence.commitment_id)
         )
         return {
@@ -169,10 +234,14 @@ class CommitmentRepository:
 
     async def totals_by_type(self, user_id: str, *, start: date, end: date) -> dict[str, Decimal]:
         result = await self.session.execute(
-            select(Commitment.type, func.coalesce(func.sum(CommitmentOccurrence.amount), 0))
-            .join(Commitment, Commitment.id == CommitmentOccurrence.commitment_id)
+            self._live_occurrences(
+                user_id,
+                columns=(
+                    Commitment.type,
+                    func.coalesce(func.sum(CommitmentOccurrence.amount), 0),
+                ),
+            )
             .where(
-                CommitmentOccurrence.user_id == user_id,
                 CommitmentOccurrence.due_date >= start,
                 CommitmentOccurrence.due_date <= end,
                 CommitmentOccurrence.status != "skipped",
@@ -186,10 +255,10 @@ class CommitmentRepository:
     ) -> list[tuple[str, Decimal, int]]:
         total = func.coalesce(func.sum(CommitmentOccurrence.amount), 0)
         result = await self.session.execute(
-            select(Commitment.category, total, func.count())
-            .join(Commitment, Commitment.id == CommitmentOccurrence.commitment_id)
+            self._live_occurrences(
+                user_id, columns=(Commitment.category, total, func.count())
+            )
             .where(
-                CommitmentOccurrence.user_id == user_id,
                 CommitmentOccurrence.due_date >= start,
                 CommitmentOccurrence.due_date <= end,
                 CommitmentOccurrence.status != "skipped",
@@ -203,12 +272,14 @@ class CommitmentRepository:
         self, user_id: str, *, start: date, end: date
     ) -> dict[str, Decimal]:
         result = await self.session.execute(
-            select(
-                CommitmentOccurrence.status,
-                func.coalesce(func.sum(CommitmentOccurrence.amount), 0),
+            self._live_occurrences(
+                user_id,
+                columns=(
+                    CommitmentOccurrence.status,
+                    func.coalesce(func.sum(CommitmentOccurrence.amount), 0),
+                ),
             )
             .where(
-                CommitmentOccurrence.user_id == user_id,
                 CommitmentOccurrence.due_date >= start,
                 CommitmentOccurrence.due_date <= end,
             )
@@ -220,10 +291,9 @@ class CommitmentRepository:
         self, user_id: str, on_date: date, *, limit: int | None = None
     ) -> list[CommitmentOccurrence]:
         query = (
-            select(CommitmentOccurrence)
+            self._live_occurrences(user_id)
             .options(selectinload(CommitmentOccurrence.commitment))
             .where(
-                CommitmentOccurrence.user_id == user_id,
                 CommitmentOccurrence.status == "pending",
                 CommitmentOccurrence.due_date < on_date,
             )
@@ -236,10 +306,7 @@ class CommitmentRepository:
 
     async def count_late(self, user_id: str, on_date: date) -> int:
         result = await self.session.execute(
-            select(func.count())
-            .select_from(CommitmentOccurrence)
-            .where(
-                CommitmentOccurrence.user_id == user_id,
+            self._live_occurrences(user_id, columns=(func.count(),)).where(
                 CommitmentOccurrence.status == "pending",
                 CommitmentOccurrence.due_date < on_date,
             )
@@ -254,14 +321,9 @@ class CommitmentRepository:
         end: date,
         status: str | None = None,
     ) -> int:
-        query = (
-            select(func.count())
-            .select_from(CommitmentOccurrence)
-            .where(
-                CommitmentOccurrence.user_id == user_id,
-                CommitmentOccurrence.due_date >= start,
-                CommitmentOccurrence.due_date <= end,
-            )
+        query = self._live_occurrences(user_id, columns=(func.count(),)).where(
+            CommitmentOccurrence.due_date >= start,
+            CommitmentOccurrence.due_date <= end,
         )
         if status is not None:
             query = query.where(CommitmentOccurrence.status == status)
@@ -269,7 +331,10 @@ class CommitmentRepository:
         return result.scalar_one()
 
     async def count_commitments(self, user_id: str, *, status: str | None = None) -> int:
-        query = select(func.count()).select_from(Commitment).where(Commitment.user_id == user_id)
+        query = select(func.count()).select_from(Commitment).where(
+            Commitment.user_id == user_id,
+            Commitment.deleted_at.is_(None),
+        )
         if status is not None:
             query = query.where(Commitment.status == status)
         result = await self.session.execute(query)
@@ -321,6 +386,7 @@ class CommitmentRepository:
                 CommitmentOccurrence.due_date >= earliest,
                 CommitmentOccurrence.due_date <= latest,
                 Commitment.status == "active",
+                Commitment.deleted_at.is_(None),
                 Commitment.is_reminder_enabled.is_(True),
                 ~sent.exists(),
             )

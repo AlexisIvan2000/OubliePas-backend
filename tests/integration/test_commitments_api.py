@@ -943,4 +943,221 @@ class TestPaymentDate:
         upcoming = [row["due_date"] for row in rows if row["status"] == "pending"]
         assert body["next_due_date"] == upcoming[0]
         assert upcoming[0] == add_months(today_utc(), 1).isoformat()
+class TestDeleteAll:
+    def test_clears_every_commitment_of_one_type(self, client, token):
+        create(client, token, netflix())
+        create(client, token, netflix(title="Spotify"))
+        create(client, token, loyer())
+
+        body = client.delete(
+            "/v1/commitments", params={"type": "subscription"}, headers=auth(token)
+        ).json()
+
+        assert body["deleted"] == 2
+        assert client.get("/v1/commitments", headers=auth(token)).json()[0]["title"] == "Loyer"
+
+    def test_without_a_type_it_clears_everything(self, client, token):
+        create(client, token, netflix())
+        create(client, token, loyer())
+
+        body = client.delete("/v1/commitments", headers=auth(token)).json()
+
+        assert body["deleted"] == 2
+        assert client.get("/v1/commitments", headers=auth(token)).json() == []
+
+    def test_can_target_a_single_status(self, client, token):
+        kept = create(client, token, netflix())
+        archived = create(client, token, netflix(title="Spotify"))
+        client.patch(
+            f"/v1/commitments/{archived['id']}",
+            json={"status": "archived"},
+            headers=auth(token),
+        )
+
+        body = client.delete(
+            "/v1/commitments", params={"status": "archived"}, headers=auth(token)
+        ).json()
+
+        rows = client.get("/v1/commitments", headers=auth(token)).json()
+        assert body["deleted"] == 1
+        assert [row["id"] for row in rows] == [kept["id"]]
+
+    def test_hides_the_occurrences_without_destroying_them(self, client, token, db):
+        create(client, token, netflix())
+        kept = db("select count(*) from commitment_occurrences")[0][0]
+
+        client.delete("/v1/commitments", headers=auth(token))
+
+        assert client.get("/v1/commitments/occurrences", headers=auth(token)).json() == []
+        assert db("select count(*) from commitment_occurrences")[0][0] == kept
+
+    def test_returns_the_ids_it_removed(self, client, token):
+        first = create(client, token, netflix())
+        second = create(client, token, netflix(title="Spotify"))
+
+        body = client.delete(
+            "/v1/commitments", params={"type": "subscription"}, headers=auth(token)
+        ).json()
+
+        assert sorted(body["ids"]) == sorted([first["id"], second["id"]])
+
+    def test_never_touches_another_account(self, client, token, other_token):
+        create(client, token, netflix())
+        create(client, other_token, loyer())
+
+        body = client.delete("/v1/commitments", headers=auth(token)).json()
+
+        assert body["deleted"] == 1
+        assert len(client.get("/v1/commitments", headers=auth(other_token)).json()) == 1
+
+    def test_an_empty_account_reports_zero(self, client, token):
+        body = client.delete("/v1/commitments", headers=auth(token)).json()
+
+        assert body["deleted"] == 0
+
+    def test_the_route_is_not_swallowed_by_the_id_route(self, client, token):
+        response = client.delete("/v1/commitments", headers=auth(token))
+
+        assert response.status_code == 200
+        assert "deleted" in response.json()
+
+    def test_needs_a_token(self, client):
+        assert client.delete("/v1/commitments").status_code == 401
+class TestRestore:
+    def test_brings_a_deleted_commitment_back(self, client, token):
+        created = create(client, token, netflix())
+        removed = client.delete(
+            f"/v1/commitments/{created['id']}", headers=auth(token)
+        ).json()
+        assert client.get("/v1/commitments", headers=auth(token)).json() == []
+
+        body = client.post(
+            "/v1/commitments/restore", json={"ids": removed["ids"]}, headers=auth(token)
+        ).json()
+
+        rows = client.get("/v1/commitments", headers=auth(token)).json()
+        assert body["restored"] == 1
+        assert [row["id"] for row in rows] == [created["id"]]
+
+    def test_brings_back_the_whole_batch(self, client, token):
+        create(client, token, netflix())
+        create(client, token, netflix(title="Spotify"))
+        removed = client.delete("/v1/commitments", headers=auth(token)).json()
+
+        client.post(
+            "/v1/commitments/restore", json={"ids": removed["ids"]}, headers=auth(token)
+        )
+
+        assert len(client.get("/v1/commitments", headers=auth(token)).json()) == 2
+
+    def test_the_history_survives_the_round_trip(self, client, token):
+        create(client, token, netflix())
+        row = client.get("/v1/commitments/occurrences", headers=auth(token)).json()[0]
+        paid = today_utc() - timedelta(days=1)
+        client.patch(
+            f"/v1/commitments/occurrences/{row['id']}",
+            json={"status": "paid", "paid_on": paid.isoformat()},
+            headers=auth(token),
+        )
+        removed = client.delete("/v1/commitments", headers=auth(token)).json()
+
+        client.post(
+            "/v1/commitments/restore", json={"ids": removed["ids"]}, headers=auth(token)
+        )
+
+        back = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+        settled = [one for one in back if one["id"] == row["id"]][0]
+        assert settled["status"] == "paid"
+        assert settled["paid_on"] == paid.isoformat()
+
+    def test_never_restores_another_account(self, client, token, other_token):
+        created = create(client, token, netflix())
+        removed = client.delete("/v1/commitments", headers=auth(token)).json()
+
+        body = client.post(
+            "/v1/commitments/restore",
+            json={"ids": removed["ids"]},
+            headers=auth(other_token),
+        ).json()
+
+        assert body["restored"] == 0
+        assert client.get("/v1/commitments", headers=auth(token)).json() == []
+        assert created["id"] in removed["ids"]
+
+    def test_refuses_an_empty_list(self, client, token):
+        response = client.post(
+            "/v1/commitments/restore", json={"ids": []}, headers=auth(token)
+        )
+
+        assert response.status_code == 422
+
+    def test_the_route_is_not_captured_by_the_id_route(self, client, token):
+        created = create(client, token, netflix())
+        removed = client.delete("/v1/commitments", headers=auth(token)).json()
+
+        response = client.post(
+            "/v1/commitments/restore", json={"ids": removed["ids"]}, headers=auth(token)
+        )
+
+        assert response.status_code == 200
+        assert created["id"] in removed["ids"]
+
+
+class TestDeletedStayHidden:
+    def _deleted(self, client, token):
+        create(client, token, netflix())
+        return client.delete("/v1/commitments", headers=auth(token)).json()
+
+    def test_it_leaves_the_summary(self, client, token):
+        self._deleted(client, token)
+
+        body = client.get("/v1/commitments/summary", headers=auth(token)).json()
+
+        assert body["month_total"] == "0.00"
+        assert body["active_count"] == 0
+        assert body["by_category"] == []
+
+    def test_it_leaves_the_late_feed(self, client, token, db):
+        create(client, token, netflix())
+        db("update commitment_occurrences set due_date = due_date - interval '4 days'")
+        client.delete("/v1/commitments", headers=auth(token))
+
+        rows = client.get("/v1/commitments/occurrences/late", headers=auth(token)).json()
+        summary = client.get("/v1/commitments/summary", headers=auth(token)).json()
+
+        assert rows == []
+        assert summary["late_count"] == 0
+
+    def test_it_can_no_longer_be_fetched_by_id(self, client, token):
+        created = create(client, token, netflix())
+        client.delete("/v1/commitments", headers=auth(token))
+
+        response = client.get(f"/v1/commitments/{created['id']}", headers=auth(token))
+
+        assert response.status_code == 404
+
+    def test_it_can_no_longer_be_edited(self, client, token):
+        created = create(client, token, netflix())
+        client.delete("/v1/commitments", headers=auth(token))
+
+        response = client.patch(
+            f"/v1/commitments/{created['id']}",
+            json={"title": "Zombie"},
+            headers=auth(token),
+        )
+
+        assert response.status_code == 404
+
+    def test_its_occurrence_can_no_longer_be_settled(self, client, token):
+        create(client, token, netflix())
+        row = client.get("/v1/commitments/occurrences", headers=auth(token)).json()[0]
+        client.delete("/v1/commitments", headers=auth(token))
+
+        response = client.patch(
+            f"/v1/commitments/occurrences/{row['id']}",
+            json={"status": "paid"},
+            headers=auth(token),
+        )
+
+        assert response.status_code == 404
 

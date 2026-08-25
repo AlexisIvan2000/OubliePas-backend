@@ -159,8 +159,23 @@ class CommitmentService:
 
     async def delete(self, user_id: str, commitment_id) -> dict:
         await self._owned(user_id, commitment_id)
-        await self.repo.delete(commitment_id, user_id)
-        return {"message": "Commitment deleted successfully"}
+        removed = await self.repo.delete(commitment_id, user_id)
+        return {"deleted": len(removed), "ids": [str(one) for one in removed]}
+
+    async def delete_all(
+        self,
+        user_id: str,
+        *,
+        commitment_type: str | None = None,
+        status: str | None = None,
+    ) -> dict:
+        removed = await self.repo.delete_all(
+            user_id, commitment_type=commitment_type, status=status
+        )
+        return {"deleted": len(removed), "ids": [str(one) for one in removed]}
+
+    async def restore(self, user_id: str, ids: list) -> dict:
+        return {"restored": await self.repo.restore(user_id, ids)}
 
     async def list_occurrences(
         self,
