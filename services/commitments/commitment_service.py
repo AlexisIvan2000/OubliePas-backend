@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from core.exceptions import (
     CommitmentNotFound,
+    FuturePaymentDate,
     InvalidDateRange,
     NoFieldsToUpdate,
     OccurrenceNotFound,
@@ -24,7 +25,7 @@ from models.schemas.commitment_schema import (
     OccurrenceResponse,
     OccurrenceUpdate,
 )
-from repositories.commitment_repository import CommitmentRepository
+from repositories.commitment_repository import CommitmentRepository, DueDates
 from services.commitments.occurrence_generator import OccurrenceGenerator, today_utc
 
 RESCHEDULING_FIELDS = frozenset({"amount", "frequency", "starts_on", "ends_on", "status"})
@@ -67,14 +68,18 @@ class CommitmentService:
             amount=occurrence.amount,
             status=occurrence.status,
             paid_at=occurrence.paid_at,
+            paid_on=occurrence.paid_on,
             is_late=occurrence.status == "pending" and occurrence.due_date < today,
         )
 
     def _commitment_response(
-        self, commitment: Commitment, next_due: date | None
+        self, commitment: Commitment, due: DueDates | None
     ) -> CommitmentResponse:
         return CommitmentResponse.model_validate(commitment).model_copy(
-            update={"next_due_date": next_due}
+            update={
+                "next_due_date": due.next_due if due else None,
+                "late_due_date": due.late if due else None,
+            }
         )
 
     async def _owned(self, user_id: str, commitment_id) -> Commitment:
@@ -96,8 +101,8 @@ class CommitmentService:
             fields["reminder_days_before"] = default_reminder_days
         commitment = await self.repo.create({"user_id": user_id, **fields})
         await self.generator.sync(commitment, today=today)
-        next_due = await self.repo.next_due_dates(user_id, today)
-        return self._commitment_response(commitment, next_due.get(commitment.id))
+        due = await self.repo.due_dates(user_id, today)
+        return self._commitment_response(commitment, due.get(commitment.id))
 
     async def list_commitments(
         self,
@@ -109,16 +114,16 @@ class CommitmentService:
         commitments = await self.repo.list_for_user(
             user_id, commitment_type=commitment_type, status=status
         )
-        next_due = await self.repo.next_due_dates(user_id, today_utc())
+        due = await self.repo.due_dates(user_id, today_utc())
         return [
-            self._commitment_response(commitment, next_due.get(commitment.id))
+            self._commitment_response(commitment, due.get(commitment.id))
             for commitment in commitments
         ]
 
     async def get(self, user_id: str, commitment_id) -> CommitmentResponse:
         commitment = await self._owned(user_id, commitment_id)
-        next_due = await self.repo.next_due_dates(user_id, today_utc())
-        return self._commitment_response(commitment, next_due.get(commitment.id))
+        due = await self.repo.due_dates(user_id, today_utc())
+        return self._commitment_response(commitment, due.get(commitment.id))
 
     async def update(
         self, user_id: str, commitment_id, payload: CommitmentUpdate
@@ -149,8 +154,8 @@ class CommitmentService:
         elif ACTION_FIELDS & changes.keys():
             await self.repo.clear_reminders(commitment_id, kind="action_required")
 
-        next_due = await self.repo.next_due_dates(user_id, today)
-        return self._commitment_response(updated, next_due.get(updated.id))
+        due = await self.repo.due_dates(user_id, today)
+        return self._commitment_response(updated, due.get(updated.id))
 
     async def delete(self, user_id: str, commitment_id) -> dict:
         await self._owned(user_id, commitment_id)
@@ -196,6 +201,10 @@ class CommitmentService:
 
         today = today_utc()
         status = changes.get("status", occurrence.status)
+        paid_on = changes.get("paid_on", occurrence.paid_on) or today
+        if status == "paid" and paid_on > today:
+            raise FuturePaymentDate()
+
         paid_at = (occurrence.paid_at or datetime.now(timezone.utc)) if status == "paid" else None
         updated = await self.repo.set_occurrence_status(
             occurrence_id,
@@ -203,6 +212,7 @@ class CommitmentService:
             status=status,
             amount=changes.get("amount"),
             paid_at=paid_at,
+            paid_on=paid_on if status == "paid" else None,
         )
         return self._occurrence_response(updated, today)
 

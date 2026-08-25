@@ -1,8 +1,9 @@
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from typing import NamedTuple
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import case, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -16,6 +17,11 @@ from models.db.commitments_db import (
     CommitmentOccurrence,
     OccurrenceReminder,
 )
+
+
+class DueDates(NamedTuple):
+    next_due: date | None
+    late: date | None
 
 
 class CommitmentRepository:
@@ -139,20 +145,27 @@ class CommitmentRepository:
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
-    async def next_due_dates(self, user_id: str, floor: date) -> dict[uuid.UUID, date]:
+    async def due_dates(self, user_id: str, floor: date) -> dict[uuid.UUID, DueDates]:
         result = await self.session.execute(
             select(
                 CommitmentOccurrence.commitment_id,
-                func.min(CommitmentOccurrence.due_date),
+                func.min(
+                    case((CommitmentOccurrence.due_date >= floor, CommitmentOccurrence.due_date))
+                ),
+                func.min(
+                    case((CommitmentOccurrence.due_date < floor, CommitmentOccurrence.due_date))
+                ),
             )
             .where(
                 CommitmentOccurrence.user_id == user_id,
                 CommitmentOccurrence.status == "pending",
-                CommitmentOccurrence.due_date >= floor,
             )
             .group_by(CommitmentOccurrence.commitment_id)
         )
-        return {commitment_id: due_date for commitment_id, due_date in result.all()}
+        return {
+            commitment_id: DueDates(next_due=next_due, late=late)
+            for commitment_id, next_due, late in result.all()
+        }
 
     async def totals_by_type(self, user_id: str, *, start: date, end: date) -> dict[str, Decimal]:
         result = await self.session.execute(
@@ -281,6 +294,7 @@ class CommitmentRepository:
         status: str,
         amount: Decimal | None = None,
         paid_at: datetime | None = None,
+        paid_on: date | None = None,
     ) -> CommitmentOccurrence | None:
         occurrence = await self.get_occurrence(occurrence_id, user_id)
         if occurrence is None:
@@ -290,6 +304,7 @@ class CommitmentRepository:
         if amount is not None:
             occurrence.amount = amount
         occurrence.paid_at = paid_at if status == "paid" else None
+        occurrence.paid_on = paid_on if status == "paid" else None
         await self.session.flush()
         return occurrence
 

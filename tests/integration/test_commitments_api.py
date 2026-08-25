@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from services.commitments.occurrence_generator import today_utc
+from services.commitments.occurrence_generator import add_months, today_utc
 
 pytestmark = pytest.mark.integration
 
@@ -786,4 +786,161 @@ class TestLongCycleHorizon:
         assert all(
             row["due_date"] <= (today + timedelta(days=90)).isoformat() for row in rows
         )
+class TestLateDueDate:
+    def test_a_missed_payment_shows_on_the_commitment(self, client, token, db):
+        created = create(client, token, netflix())
+        db("update commitment_occurrences set due_date = due_date - interval '3 days'")
+
+        body = client.get(f"/v1/commitments/{created['id']}", headers=auth(token)).json()
+
+        assert body["late_due_date"] == (today_utc() - timedelta(days=3)).isoformat()
+
+    def test_the_next_date_stays_the_upcoming_one(self, client, token, db):
+        created = create(client, token, netflix())
+        db(
+            "update commitment_occurrences set due_date = due_date - interval '3 days' "
+            "where due_date = :d",
+            d=today_utc(),
+        )
+
+        body = client.get(f"/v1/commitments/{created['id']}", headers=auth(token)).json()
+
+        assert body["late_due_date"] < today_utc().isoformat()
+        assert body["next_due_date"] > today_utc().isoformat()
+
+    def test_nothing_late_leaves_the_field_empty(self, client, token):
+        created = create(client, token, netflix())
+
+        body = client.get(f"/v1/commitments/{created['id']}", headers=auth(token)).json()
+
+        assert body["late_due_date"] is None
+        assert body["next_due_date"] == today_utc().isoformat()
+
+    def test_settling_the_missed_payment_clears_it(self, client, token, db):
+        created = create(client, token, netflix())
+        db("update commitment_occurrences set due_date = due_date - interval '3 days'")
+        late = client.get("/v1/commitments/occurrences/late", headers=auth(token)).json()
+        client.patch(
+            f"/v1/commitments/occurrences/{late[0]['id']}",
+            json={"status": "paid"},
+            headers=auth(token),
+        )
+
+        body = client.get(f"/v1/commitments/{created['id']}", headers=auth(token)).json()
+
+        assert body["late_due_date"] is None
+
+    def test_the_listing_carries_it_too(self, client, token, db):
+        create(client, token, netflix())
+        db("update commitment_occurrences set due_date = due_date - interval '2 days'")
+
+        rows = client.get("/v1/commitments", headers=auth(token)).json()
+
+        assert rows[0]["late_due_date"] == (today_utc() - timedelta(days=2)).isoformat()
+
+
+class TestPaymentDate:
+    def _first(self, client, token):
+        create(client, token, netflix())
+        return client.get("/v1/commitments/occurrences", headers=auth(token)).json()[0]
+
+    def test_defaults_to_today(self, client, token):
+        row = self._first(client, token)
+
+        body = client.patch(
+            f"/v1/commitments/occurrences/{row['id']}",
+            json={"status": "paid"},
+            headers=auth(token),
+        ).json()
+
+        assert body["paid_on"] == today_utc().isoformat()
+
+    def test_accepts_a_past_date(self, client, token):
+        row = self._first(client, token)
+        paid = today_utc() - timedelta(days=2)
+
+        body = client.patch(
+            f"/v1/commitments/occurrences/{row['id']}",
+            json={"status": "paid", "paid_on": paid.isoformat()},
+            headers=auth(token),
+        ).json()
+
+        assert body["paid_on"] == paid.isoformat()
+
+    def test_refuses_a_future_date(self, client, token):
+        row = self._first(client, token)
+        later = today_utc() + timedelta(days=1)
+
+        response = client.patch(
+            f"/v1/commitments/occurrences/{row['id']}",
+            json={"status": "paid", "paid_on": later.isoformat()},
+            headers=auth(token),
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "FUTURE_PAYMENT_DATE"
+
+    def test_the_listing_keeps_it(self, client, token):
+        row = self._first(client, token)
+        paid = today_utc() - timedelta(days=4)
+        client.patch(
+            f"/v1/commitments/occurrences/{row['id']}",
+            json={"status": "paid", "paid_on": paid.isoformat()},
+            headers=auth(token),
+        )
+
+        rows = client.get("/v1/commitments/occurrences", headers=auth(token)).json()
+
+        assert rows[0]["paid_on"] == paid.isoformat()
+
+    def test_marking_it_pending_again_clears_it(self, client, token):
+        row = self._first(client, token)
+        client.patch(
+            f"/v1/commitments/occurrences/{row['id']}",
+            json={"status": "paid"},
+            headers=auth(token),
+        )
+
+        body = client.patch(
+            f"/v1/commitments/occurrences/{row['id']}",
+            json={"status": "pending"},
+            headers=auth(token),
+        ).json()
+
+        assert body["paid_on"] is None
+        assert body["paid_at"] is None
+
+    def test_skipping_records_no_payment_date(self, client, token):
+        row = self._first(client, token)
+
+        body = client.patch(
+            f"/v1/commitments/occurrences/{row['id']}",
+            json={"status": "skipped"},
+            headers=auth(token),
+        ).json()
+
+        assert body["paid_on"] is None
+
+    def test_the_schedule_does_not_move(self, client, token):
+        created = create(client, token, netflix())
+        row = client.get("/v1/commitments/occurrences", headers=auth(token)).json()[0]
+        client.patch(
+            f"/v1/commitments/occurrences/{row['id']}",
+            json={"status": "paid", "paid_on": (today_utc() - timedelta(days=2)).isoformat()},
+            headers=auth(token),
+        )
+
+        rows = client.get(
+            "/v1/commitments/occurrences",
+            params={
+                "start": today_utc().isoformat(),
+                "end": (today_utc() + timedelta(days=60)).isoformat(),
+            },
+            headers=auth(token),
+        ).json()
+        body = client.get(f"/v1/commitments/{created['id']}", headers=auth(token)).json()
+
+        upcoming = [row["due_date"] for row in rows if row["status"] == "pending"]
+        assert body["next_due_date"] == upcoming[0]
+        assert upcoming[0] == add_months(today_utc(), 1).isoformat()
 

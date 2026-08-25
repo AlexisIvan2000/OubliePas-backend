@@ -119,6 +119,7 @@ class CommitmentResponse(BaseModel):
     status: CommitmentStatus
     notes: str | None
     next_due_date: date | None = None
+    late_due_date: date | None = None
     created_at: datetime
 
 
@@ -127,6 +128,7 @@ class OccurrenceUpdate(BaseModel):
     amount: Decimal | None = Field(
         default=None, gt=0, le=MAX_AMOUNT, max_digits=10, decimal_places=2
     )
+    paid_on: date | None = None
 
 
 class OccurrenceResponse(BaseModel):
@@ -139,6 +141,7 @@ class OccurrenceResponse(BaseModel):
     amount: Decimal
     status: OccurrenceStatus
     paid_at: datetime | None
+    paid_on: date | None
     is_late: bool
 
 

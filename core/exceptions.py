@@ -209,6 +209,12 @@ class OccurrenceNotFound(AppException):
     message = "This due date does not exist"
 
 
+class FuturePaymentDate(AppException):
+    status_code = 400
+    code = "FUTURE_PAYMENT_DATE"
+    message = "The payment date cannot be in the future"
+
+
 class InvalidDateRange(AppException):
     status_code = 400
     code = "INVALID_DATE_RANGE"
