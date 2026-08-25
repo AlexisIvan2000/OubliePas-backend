@@ -29,8 +29,6 @@ def sanitize_avatar(data: bytes) -> tuple[bytes, str, str]:
             if image_format not in SUPPORTED_FORMATS:
                 raise UnsupportedAvatarType()
             if image_format == "JPEG":
-                # Decode straight to a reduced scale: the EXIF rotation and the
-                # resampling below then run on a fraction of the pixels.
                 probe.draft("RGB", (MAX_AVATAR_DIMENSION, MAX_AVATAR_DIMENSION))
             image = ImageOps.exif_transpose(probe)
             image.load()
