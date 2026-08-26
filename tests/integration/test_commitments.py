@@ -332,32 +332,6 @@ class TestReminders:
         assert session_runner(work) == 0
 
 
-class TestTotals:
-    def test_sums_the_window(self, session_runner, user_id):
-        async def work(session):
-            repo = CommitmentRepository(session)
-            generator = OccurrenceGenerator(repo)
-            await generator.sync(await repo.create(netflix(user_id)), today=TODAY)
-            await generator.sync(await repo.create(loyer(user_id)), today=TODAY)
-            return await repo.total_between(
-                user_id, start=date(2026, 8, 1), end=date(2026, 8, 31)
-            )
-
-        assert session_runner(work) == Decimal("1268.99")
-
-    def test_excludes_another_user(self, session_runner, user_id, other_user_id):
-        async def work(session):
-            repo = CommitmentRepository(session)
-            generator = OccurrenceGenerator(repo)
-            await generator.sync(await repo.create(netflix(user_id)), today=TODAY)
-            await generator.sync(await repo.create(loyer(other_user_id)), today=TODAY)
-            return await repo.total_between(
-                other_user_id, start=date(2026, 8, 1), end=date(2026, 8, 31)
-            )
-
-        assert session_runner(work) == Decimal("1250.00")
-
-
 class TestCascade:
     def test_deleting_the_user_removes_everything(self, session_runner, db, user_id):
         async def work(session):

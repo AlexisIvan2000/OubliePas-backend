@@ -503,21 +503,3 @@ class CommitmentRepository:
         result = await self.session.execute(statement)
         await self.session.flush()
         return result.rowcount
-
-    async def total_between(
-        self,
-        user_id: str,
-        *,
-        start: date,
-        end: date,
-        status: str | None = None,
-    ) -> Decimal:
-        query = select(func.coalesce(func.sum(CommitmentOccurrence.amount), 0)).where(
-            CommitmentOccurrence.user_id == user_id,
-            CommitmentOccurrence.due_date >= start,
-            CommitmentOccurrence.due_date <= end,
-        )
-        if status is not None:
-            query = query.where(CommitmentOccurrence.status == status)
-        result = await self.session.execute(query)
-        return Decimal(result.scalar_one())
