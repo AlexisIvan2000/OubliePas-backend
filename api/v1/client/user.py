@@ -10,7 +10,7 @@ from api.dependencies import (
 )
 from api.responses import user_response
 from core.exceptions import AvatarTooLarge
-from core.rate_limit import limiter
+from core.rate_limit import READ_LIMIT, limiter
 from models.schemas.auth_schema import MessageResponse, UserResponse
 from models.schemas.user_schema import (
     ChangeEmail,
@@ -35,7 +35,8 @@ def _reject_oversized_body(request: Request) -> None:
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_profile(user: CurrentUserDep):
+@limiter.limit(READ_LIMIT)
+async def get_profile(request: Request, user: CurrentUserDep):
     return user_response(user)
 
 

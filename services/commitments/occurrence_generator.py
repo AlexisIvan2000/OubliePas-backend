@@ -39,6 +39,8 @@ def nth_due_date(starts_on: date, frequency: str, index: int) -> date:
 
 
 def _first_index(starts_on: date, frequency: str, floor: date) -> int:
+    # Le - 1 est une periode de marge : le calcul en mois ignore le jour du mois et
+    # pourrait depasser l'indice reel. Le filtre due >= floor jette l'iteration en trop.
     if floor <= starts_on:
         return 0
     if frequency == "weekly":

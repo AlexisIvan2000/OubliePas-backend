@@ -1,6 +1,7 @@
 import pytest
 
 from core.config import REFRESH_COOKIE_NAME
+from services.authentication.email_password import MAX_LOGIN_ATTEMPTS_PER_HOUR
 
 pytestmark = pytest.mark.integration
 
@@ -97,3 +98,113 @@ def test_login_is_rate_limited(client, verified, rate_limit_on):
         for _ in range(12)
     ]
     assert 429 in codes
+
+
+@pytest.fixture
+def other_verified(client, mailbox):
+    account = {
+        "first_name": "Sophie",
+        "email": "sophie@example.com",
+        "password": "MotDePasse1!",
+    }
+    assert client.post("/v1/auth/register", json=account).status_code == 201
+    code = mailbox[-1]["code"]
+    assert client.post(
+        "/v1/auth/verify-email", json={"email": account["email"], "code": code}
+    ).status_code == 200
+    return account
+
+
+def wrong(client, email):
+    return client.post("/v1/auth/login", json={"email": email, "password": "Mauvais1!"})
+
+
+def right(client, account):
+    return client.post(
+        "/v1/auth/login",
+        json={"email": account["email"], "password": account["password"]},
+    )
+
+
+def exhaust(client, account):
+    for _ in range(MAX_LOGIN_ATTEMPTS_PER_HOUR):
+        assert wrong(client, account["email"]).status_code == 401
+
+
+class TestPerAccountLimit:
+    def test_the_counter_lives_in_the_database(self, client, verified, db):
+        wrong(client, verified["email"])
+        wrong(client, verified["email"])
+
+        [(count, at)] = db(
+            "select failed_login_count, last_failed_login_at from users where email = :e",
+            e=verified["email"],
+        )
+        assert count == 2
+        assert at is not None
+
+    def test_the_right_password_is_refused_once_the_quota_is_spent(
+        self, client, verified
+    ):
+        exhaust(client, verified)
+
+        response = right(client, verified)
+
+        assert response.status_code == 401
+        assert response.json()["detail"]["code"] == "INVALID_CREDENTIALS"
+
+    def test_the_refusal_is_indistinguishable_from_a_wrong_password(
+        self, client, verified
+    ):
+        exhaust(client, verified)
+
+        locked = right(client, verified)
+        unknown = wrong(client, "inconnu@example.com")
+
+        assert locked.status_code == unknown.status_code
+        assert locked.json() == unknown.json()
+
+    def test_one_attempt_short_of_the_quota_still_lets_you_in(self, client, verified):
+        for _ in range(MAX_LOGIN_ATTEMPTS_PER_HOUR - 1):
+            wrong(client, verified["email"])
+
+        assert right(client, verified).status_code == 200
+
+    def test_a_successful_login_clears_the_counter(self, client, verified, db):
+        wrong(client, verified["email"])
+        right(client, verified)
+
+        [(count, at)] = db(
+            "select failed_login_count, last_failed_login_at from users where email = :e",
+            e=verified["email"],
+        )
+        assert count == 0
+        assert at is None
+
+    def test_the_quota_reopens_after_the_window(self, client, verified, db):
+        exhaust(client, verified)
+        assert right(client, verified).status_code == 401
+
+        db(
+            "update users set last_failed_login_at = last_failed_login_at"
+            " - interval '2 hours' where email = :e",
+            e=verified["email"],
+        )
+
+        assert right(client, verified).status_code == 200
+
+    def test_an_unknown_address_is_never_locked(self, client):
+        codes = {
+            wrong(client, "inconnu@example.com").status_code
+            for _ in range(MAX_LOGIN_ATTEMPTS_PER_HOUR + 5)
+        }
+
+        assert codes == {401}
+
+    def test_the_lock_survives_a_failed_attempt_on_another_account(
+        self, client, verified, other_verified
+    ):
+        exhaust(client, verified)
+
+        assert right(client, other_verified).status_code == 200
+        assert right(client, verified).status_code == 401

@@ -1,5 +1,6 @@
 import calendar
 from datetime import date, datetime, timedelta, timezone
+from typing import NamedTuple
 from decimal import Decimal
 
 from core.exceptions import (
@@ -43,6 +44,20 @@ def purge_on(deleted_at: datetime | None) -> date | None:
         return None
     return (deleted_at + timedelta(days=PURGE_AFTER_DAYS)).date()
 CENTS = Decimal("0.01")
+
+
+class Settlement(NamedTuple):
+    at: datetime | None
+    on: date | None
+
+
+def settle(occurrence, *, status: str, paid_on: date | None, today: date) -> Settlement:
+    if status != "paid":
+        return Settlement(None, None)
+    when = paid_on or today
+    if when > today:
+        raise FuturePaymentDate()
+    return Settlement(occurrence.paid_at or datetime.now(timezone.utc), when)
 
 
 def money(value: Decimal) -> Decimal:
@@ -233,18 +248,19 @@ class CommitmentService:
 
         today = today_utc()
         status = changes.get("status", occurrence.status)
-        paid_on = changes.get("paid_on", occurrence.paid_on) or today
-        if status == "paid" and paid_on > today:
-            raise FuturePaymentDate()
-
-        paid_at = (occurrence.paid_at or datetime.now(timezone.utc)) if status == "paid" else None
+        settlement = settle(
+            occurrence,
+            status=status,
+            paid_on=changes.get("paid_on", occurrence.paid_on),
+            today=today,
+        )
         updated = await self.repo.set_occurrence_status(
             occurrence_id,
             user_id,
             status=status,
             amount=changes.get("amount"),
-            paid_at=paid_at,
-            paid_on=paid_on if status == "paid" else None,
+            paid_at=settlement.at,
+            paid_on=settlement.on,
         )
         return self._occurrence_response(updated, today)
 

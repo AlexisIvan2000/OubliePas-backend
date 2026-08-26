@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from core.exceptions import (
     AccountDisabled,
@@ -17,13 +17,15 @@ from core.exceptions import (
 )
 from core.security import Security
 from core.validators import is_disposable_email, normalize_email
+from models.db.user_db import MAX_VERIFICATION_ATTEMPTS
 from models.schemas.auth_schema import UserCreate, UserLogin
 from repositories.auth_repository import AuthRepository
 from repositories.refresh_token_repository import RefreshTokenRepository
 from services.authentication.tokens import issue_tokens
 from services.emailing.otp_service import OtpService
 
-MAX_VERIFICATION_ATTEMPTS = 5
+MAX_LOGIN_ATTEMPTS_PER_HOUR = 20
+LOGIN_WINDOW_HOURS = 1
 
 
 class EmailPasswordAuth:
@@ -57,14 +59,45 @@ class EmailPasswordAuth:
 
         return {"message": "Account created. Please check your email for the verification code."}
 
+    @staticmethod
+    def _login_locked(db_user, now: datetime) -> bool:
+        return (
+            db_user.last_failed_login_at is not None
+            and db_user.last_failed_login_at > now - timedelta(hours=LOGIN_WINDOW_HOURS)
+            and db_user.failed_login_count >= MAX_LOGIN_ATTEMPTS_PER_HOUR
+        )
+
+    @staticmethod
+    def _next_failure_count(db_user, now: datetime) -> int:
+        window_start = now - timedelta(hours=LOGIN_WINDOW_HOURS)
+        if db_user.last_failed_login_at and db_user.last_failed_login_at > window_start:
+            return db_user.failed_login_count + 1
+        return 1
+
     async def login_user(self, user: UserLogin):
+        now = datetime.now(timezone.utc)
         db_user = await self.repo.get_user_by_email(normalize_email(user.email))
         if not db_user:
             await Security.dummy_verify_async()
             raise InvalidCredentials()
 
-        if not await Security.verify_password_async(db_user.password_hash, user.password):
+        if self._login_locked(db_user, now):
+            # Meme reponse et meme cout qu'un mot de passe faux : sans cette
+            # verification a vide, le refus serait plus rapide et signalerait
+            # que le compte existe.
+            await Security.dummy_verify_async()
             raise InvalidCredentials()
+
+        if not await Security.verify_password_async(db_user.password_hash, user.password):
+            await self.repo.record_failed_login(
+                str(db_user.id),
+                count=self._next_failure_count(db_user, now),
+                at=now,
+            )
+            raise InvalidCredentials()
+
+        if db_user.failed_login_count:
+            await self.repo.clear_failed_logins(str(db_user.id))
 
         if not db_user.is_active:
             raise AccountDisabled()

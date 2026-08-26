@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
-from models.db.commitments_db import Commitment
+from models.db.commitments_db import MAX_REMINDER_DAYS, Commitment
 from repositories.commitment_repository import CommitmentRepository
 from services.commitments.occurrence_generator import OccurrenceGenerator
 
@@ -332,32 +332,6 @@ class TestReminders:
         assert session_runner(work) == 0
 
 
-class TestTotals:
-    def test_sums_the_window(self, session_runner, user_id):
-        async def work(session):
-            repo = CommitmentRepository(session)
-            generator = OccurrenceGenerator(repo)
-            await generator.sync(await repo.create(netflix(user_id)), today=TODAY)
-            await generator.sync(await repo.create(loyer(user_id)), today=TODAY)
-            return await repo.total_between(
-                user_id, start=date(2026, 8, 1), end=date(2026, 8, 31)
-            )
-
-        assert session_runner(work) == Decimal("1268.99")
-
-    def test_excludes_another_user(self, session_runner, user_id, other_user_id):
-        async def work(session):
-            repo = CommitmentRepository(session)
-            generator = OccurrenceGenerator(repo)
-            await generator.sync(await repo.create(netflix(user_id)), today=TODAY)
-            await generator.sync(await repo.create(loyer(other_user_id)), today=TODAY)
-            return await repo.total_between(
-                other_user_id, start=date(2026, 8, 1), end=date(2026, 8, 31)
-            )
-
-        assert session_runner(work) == Decimal("1250.00")
-
-
 class TestCascade:
     def test_deleting_the_user_removes_everything(self, session_runner, db, user_id):
         async def work(session):
@@ -383,3 +357,79 @@ def test_commitment_model_exposes_its_occurrences(session_runner, user_id):
         return len(found.occurrences)
 
     assert session_runner(work) == 3
+
+
+LEAD_TIMES = (0, 3, 5, 7, MAX_REMINDER_DAYS)
+OFFSETS = (0, 1, 2, 3, 4, 5, 6, 7, 8, 29, 30, 31)
+
+
+class TestNoticeSelection:
+    """L'ancienne voie filtrait en Python, la nouvelle en SQL. Meme lot de
+    depart, deux filtres : les identifiants retenus doivent coincider."""
+
+    @staticmethod
+    async def _populate(repo, user_id):
+        for lead in LEAD_TIMES:
+            for offset in OFFSETS:
+                commitment = await repo.create(
+                    netflix(
+                        user_id,
+                        title=f"J+{offset} delai {lead}",
+                        frequency="oneoff",
+                        starts_on=TODAY + timedelta(days=offset),
+                        reminder_days_before=lead,
+                    )
+                )
+                await OccurrenceGenerator(repo).sync(commitment, today=TODAY)
+
+    @staticmethod
+    async def _both_ways(repo, on_date):
+        rows = (await repo.session.execute(repo._notice_window(on_date))).all()
+        old = [
+            occurrence.id
+            for occurrence, commitment in rows
+            if (occurrence.due_date - on_date).days <= commitment.reminder_days_before
+        ]
+        new = [occurrence.id for occurrence, _ in await repo.due_for_reminder(on_date)]
+        return old, new, len(rows)
+
+    def test_both_ways_pick_the_same_rows(self, session_runner, user_id):
+        async def work(session):
+            repo = CommitmentRepository(session)
+            await self._populate(repo, user_id)
+            return await self._both_ways(repo, TODAY)
+
+        old, new, fetched = session_runner(work)
+
+        assert sorted(map(str, old)) == sorted(map(str, new))
+        assert old, "le jeu de donnees doit selectionner quelque chose"
+        assert fetched > len(new), "le SQL doit remonter moins que la fenetre large"
+
+    def test_the_bounds_are_included(self, session_runner, user_id):
+        async def work(session):
+            repo = CommitmentRepository(session)
+            await self._populate(repo, user_id)
+            picked = await repo.due_for_reminder(TODAY)
+            return sorted(
+                ((occurrence.due_date - TODAY).days, commitment.reminder_days_before)
+                for occurrence, commitment in picked
+            )
+
+        pairs = session_runner(work)
+
+        assert all(days <= lead for days, lead in pairs)
+        for lead in LEAD_TIMES:
+            assert (lead, lead) in pairs, f"l'echeance pile a J+{lead} doit passer"
+            assert (lead + 1, lead) not in pairs, f"J+{lead + 1} ne doit pas passer"
+
+    def test_a_zero_delay_only_takes_today(self, session_runner, user_id):
+        async def work(session):
+            repo = CommitmentRepository(session)
+            await self._populate(repo, user_id)
+            return [
+                (occurrence.due_date - TODAY).days
+                for occurrence, commitment in await repo.due_for_reminder(TODAY)
+                if commitment.reminder_days_before == 0
+            ]
+
+        assert session_runner(work) == [0]

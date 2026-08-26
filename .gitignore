@@ -1,7 +1,7 @@
 # Environnement / secrets
 .env
 .env.*
-.env.example
+!.env.example
 
 # Environnements virtuels
 .venv/
@@ -43,4 +43,4 @@ uploads/
 
 # Claude Code (reglages personnels, non partages)
 .claude/settings.local.json
-
+CLAUDE.md

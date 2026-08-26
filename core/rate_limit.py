@@ -5,6 +5,10 @@ from core.config import REDIS_URL, TRUSTED_PROXY_COUNT
 from core.security import Security
 
 FALLBACK_IP = "127.0.0.1"
+# Assez haut pour rester invisible a l'usage, assez bas pour borner une
+# boucle : le resume emet sept requetes SQL par appel et le pool ne tient
+# que dix connexions.
+READ_LIMIT = "120/minute"
 
 
 def client_ip(request: Request) -> str:

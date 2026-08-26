@@ -8,6 +8,10 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from api.middlewares.security_headers import SecurityHeadersMiddleware
+from api.middlewares.server_error import (
+    INTERNAL_ERROR,
+    ServerErrorEnvelopeMiddleware,
+)
 from api.v1.router import api_router
 from core.config import CORS_ORIGIN_REGEX, CORS_ORIGINS, DEBUG, TRUSTED_PROXY_COUNT
 from core.database import dispose_engine
@@ -21,13 +25,26 @@ async def lifespan(app: FastAPI):
     await dispose_engine()
 
 
+def docs_urls(debug: bool) -> dict:
+    # Le schema decrit toute la surface de l'API pour un service qui n'a qu'un
+    # client, deja au courant. Rien ne compense de le publier.
+    if debug:
+        return {"docs_url": "/docs", "redoc_url": "/redoc", "openapi_url": "/openapi.json"}
+    return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+
+
 app = FastAPI(
     title="OubliePas API",
     version="0.1.0",
     lifespan=lifespan,
+    **docs_urls(DEBUG),
 )
 
 app.state.limiter = limiter
+# L'ordre est inverse : le dernier ajoute enveloppe les precedents. Le
+# rattrapage des 500 doit donc etre ajoute en premier pour finir au plus
+# profond, sous les en-tetes de securite et sous le CORS.
+app.add_middleware(ServerErrorEnvelopeMiddleware)
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
@@ -57,6 +74,14 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
             }
         },
     )
+
+
+@app.exception_handler(Exception)
+async def unhandled_handler(request: Request, exc: Exception):
+    # Dernier recours : ne couvre que ce qui echoue au-dessus du middleware,
+    # dans le CORS ou les en-tetes eux-memes. Sans en-tetes, mais au moins
+    # avec la meme enveloppe que le reste de l'API.
+    return JSONResponse(status_code=500, content=INTERNAL_ERROR)
 
 
 @app.exception_handler(RequestValidationError)

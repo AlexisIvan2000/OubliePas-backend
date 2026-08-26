@@ -12,6 +12,9 @@ from models.db.commitments_db import DEFAULT_REMINDER_DAYS, MAX_REMINDER_DAYS
 LOCALES = ("fr", "en")
 DEFAULT_LOCALE = "fr"
 
+MAX_VERIFICATION_ATTEMPTS = 5
+
+
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (
@@ -42,6 +45,12 @@ class User(Base):
     verification_attempts: Mapped[int] = mapped_column(Integer, default=0)
     last_code_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     code_resend_count: Mapped[int] = mapped_column(Integer, default=0)
+    failed_login_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=sa.text("0")
+    )
+    last_failed_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     avatar_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     currency: Mapped[str] = mapped_column(String(3), default="CAD")
