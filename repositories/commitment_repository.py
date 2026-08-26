@@ -391,8 +391,8 @@ class CommitmentRepository:
         occurrence.status = status
         if amount is not None:
             occurrence.amount = amount
-        occurrence.paid_at = paid_at if status == "paid" else None
-        occurrence.paid_on = paid_on if status == "paid" else None
+        occurrence.paid_at = paid_at
+        occurrence.paid_on = paid_on
         await self.session.flush()
         return occurrence
 
