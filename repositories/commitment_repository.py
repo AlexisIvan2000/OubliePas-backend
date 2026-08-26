@@ -460,6 +460,18 @@ class CommitmentRepository:
         )
         return [(occurrence, commitment) for occurrence, commitment in result.all()]
 
+    async def purge_reminders(self, before: date) -> int:
+        stale = select(CommitmentOccurrence.id).where(
+            CommitmentOccurrence.due_date < before
+        )
+        result = await self.session.execute(
+            delete(OccurrenceReminder).where(
+                OccurrenceReminder.occurrence_id.in_(stale)
+            )
+        )
+        await self.session.flush()
+        return result.rowcount
+
     async def clear_reminders(self, commitment_id: str, *, kind: str) -> int:
         pending = select(CommitmentOccurrence.id).where(
             CommitmentOccurrence.commitment_id == commitment_id,

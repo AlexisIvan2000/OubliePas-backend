@@ -4,6 +4,10 @@ import pytest
 from sqlalchemy import text
 
 from jobs.daily import LOCK_KEY, exit_code, main, run_daily
+from models.db.commitments_db import (
+    OVERDUE_REMINDER_WINDOW_DAYS,
+    PURGE_REMINDERS_AFTER_DAYS,
+)
 from services.emailing.email_sender import EmailSender
 from services.commitments.occurrence_generator import today_utc
 
@@ -1076,3 +1080,75 @@ class TestPurge:
 
         assert len(reminders()) == 1
 
+
+class TestReminderLogPurge:
+    def test_the_bound_follows_the_relance_window(self):
+        assert PURGE_REMINDERS_AFTER_DAYS > OVERDUE_REMINDER_WINDOW_DAYS
+
+    def test_a_line_the_relance_can_still_use_is_kept(
+        self, client, token, run_job, db, relances
+    ):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        make_late(db, OVERDUE_REMINDER_WINDOW_DAYS)
+
+        report = run_job()
+
+        assert len(relances()) == 1
+        assert report["reminders_purged"] == 0
+        assert "overdue" in kinds(db)
+
+    def test_the_purge_never_makes_a_reminder_repeat(
+        self, client, token, run_job, db, relances
+    ):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        make_late(db, OVERDUE_REMINDER_WINDOW_DAYS)
+        run_job()
+        assert len(relances()) == 1
+
+        run_job()
+
+        assert len(relances()) == 1
+        assert "overdue" in kinds(db)
+
+    @pytest.mark.parametrize(
+        "age, survives",
+        [
+            (PURGE_REMINDERS_AFTER_DAYS - 1, True),
+            (PURGE_REMINDERS_AFTER_DAYS, True),
+            (PURGE_REMINDERS_AFTER_DAYS + 1, False),
+        ],
+    )
+    def test_the_bound_is_strictly_older_than(
+        self, client, token, run_job, db, age, survives
+    ):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        run_job()
+        assert kinds(db) == ["notice"]
+        make_late(db, age)
+
+        report = run_job()
+
+        assert ("notice" in kinds(db)) is survives
+        assert report["reminders_purged"] == (0 if survives else 1)
+
+    def test_a_purged_line_sends_nothing_back(
+        self, client, token, run_job, db, mailbox
+    ):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+        run_job()
+        forgotten = today_utc() - timedelta(days=PURGE_REMINDERS_AFTER_DAYS + 1)
+        make_late(db, PURGE_REMINDERS_AFTER_DAYS + 1)
+
+        run_job()
+
+        rappelees = [
+            item["due_date"]
+            for message in mailbox
+            for item in message.get("items", [])
+        ]
+        assert forgotten not in rappelees
+
+    def test_an_untouched_log_reports_nothing(self, client, token, run_job):
+        client.post("/v1/commitments", json=netflix(), headers=auth(token))
+
+        assert run_job()["reminders_purged"] == 0
