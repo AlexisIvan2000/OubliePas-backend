@@ -82,6 +82,22 @@ class AuthRepository:
         )
         await self.session.flush()
 
+    async def record_failed_login(self, user_id: str, *, count: int, at) -> None:
+        await self.session.execute(
+            update(User).where(User.id == user_id).values(
+                failed_login_count=count, last_failed_login_at=at
+            )
+        )
+        await self.session.flush()
+
+    async def clear_failed_logins(self, user_id: str) -> None:
+        await self.session.execute(
+            update(User).where(User.id == user_id).values(
+                failed_login_count=0, last_failed_login_at=None
+            )
+        )
+        await self.session.flush()
+
     async def delete_user(self, user_id: str) -> None:
         user = await self.get_user_by_id(user_id)
         if user:
