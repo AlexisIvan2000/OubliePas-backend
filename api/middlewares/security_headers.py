@@ -16,10 +16,15 @@ API_CSP = "; ".join(
 DOCS_CSP = "; ".join(
     [
         "default-src 'none'",
-        "script-src 'self' https://cdn.jsdelivr.net",
-        "style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'",
+        # Swagger UI s'amorce par un script en ligne genere par FastAPI. Sans cette
+        # tolerance, le bundle se charge mais rien ne l'initialise et la page reste
+        # blanche. Les docs ne sont servies qu'en DEBUG, jamais en production.
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+        # ReDoc tire ses polices de Google : la feuille depuis fonts.googleapis.com,
+        # les fichiers depuis fonts.gstatic.com.
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
         "img-src 'self' https://fastapi.tiangolo.com data:",
-        "font-src 'self' https://cdn.jsdelivr.net",
+        "font-src 'self' https://cdn.jsdelivr.net https://fonts.gstatic.com",
         "connect-src 'self'",
         "frame-ancestors 'none'",
         "base-uri 'none'",
