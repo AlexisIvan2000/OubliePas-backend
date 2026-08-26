@@ -4,7 +4,7 @@ from api.dependencies import CurrentUserDep, EmailPasswordAuthDep, GoogleAuthDep
 from api.responses import user_response
 from core.cookies import clear_refresh_cookie, issue_session, read_refresh_cookie
 from core.exceptions import GoogleAuthUnavailable, InvalidRefreshToken
-from core.rate_limit import ip_key, limiter
+from core.rate_limit import READ_LIMIT, ip_key, limiter
 from models.schemas.auth_schema import (
     GoogleAuthRequest,
     GoogleStartRequest,
@@ -101,6 +101,7 @@ async def refresh(request: Request, response: Response, service: EmailPasswordAu
 
 
 @router.post("/logout", response_model=MessageResponse)
+@limiter.limit("30/minute")
 async def logout(request: Request, response: Response, service: EmailPasswordAuthDep):
     token = read_refresh_cookie(request)
     clear_refresh_cookie(response)
@@ -110,5 +111,6 @@ async def logout(request: Request, response: Response, service: EmailPasswordAut
 
 
 @router.get("/me", response_model=UserResponse)
-async def me(user: CurrentUserDep):
+@limiter.limit(READ_LIMIT)
+async def me(request: Request, user: CurrentUserDep):
     return user_response(user)

@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Query, Request
 
 from api.dependencies import CommitmentServiceDep, CurrentUserDep
-from core.rate_limit import limiter
+from core.rate_limit import READ_LIMIT, limiter
 from models.schemas.commitment_schema import (
     CommitmentCreate,
     CommitmentResponse,
@@ -26,12 +26,17 @@ router = APIRouter(prefix="/commitments", tags=["commitments"])
 
 
 @router.get("/summary", response_model=DashboardSummary)
-async def get_summary(user: CurrentUserDep, service: CommitmentServiceDep):
+@limiter.limit(READ_LIMIT)
+async def get_summary(
+    request: Request, user: CurrentUserDep, service: CommitmentServiceDep
+):
     return await service.summary(str(user.id), user.currency)
 
 
 @router.get("/occurrences", response_model=list[OccurrenceResponse])
+@limiter.limit(READ_LIMIT)
 async def list_occurrences(
+    request: Request,
     user: CurrentUserDep,
     service: CommitmentServiceDep,
     start: date | None = Query(default=None),
@@ -48,7 +53,10 @@ async def list_occurrences(
 
 
 @router.get("/occurrences/late", response_model=list[OccurrenceResponse])
-async def list_late_occurrences(user: CurrentUserDep, service: CommitmentServiceDep):
+@limiter.limit(READ_LIMIT)
+async def list_late_occurrences(
+    request: Request, user: CurrentUserDep, service: CommitmentServiceDep
+):
     return await service.list_late(str(user.id))
 
 
@@ -65,7 +73,9 @@ async def update_occurrence(
 
 
 @router.get("/trash", response_model=list[CommitmentResponse])
+@limiter.limit(READ_LIMIT)
 async def list_trash(
+    request: Request,
     user: CurrentUserDep,
     service: CommitmentServiceDep,
     type: CommitmentType | None = Query(default=None),
@@ -86,7 +96,9 @@ async def empty_trash(
 
 
 @router.get("", response_model=list[CommitmentResponse])
+@limiter.limit(READ_LIMIT)
 async def list_commitments(
+    request: Request,
     user: CurrentUserDep,
     service: CommitmentServiceDep,
     type: CommitmentType | None = Query(default=None),
@@ -132,8 +144,12 @@ async def create_commitment(
 
 
 @router.get("/{commitment_id}", response_model=CommitmentResponse)
+@limiter.limit(READ_LIMIT)
 async def get_commitment(
-    commitment_id: UUID, user: CurrentUserDep, service: CommitmentServiceDep
+    request: Request,
+    commitment_id: UUID,
+    user: CurrentUserDep,
+    service: CommitmentServiceDep,
 ):
     return await service.get(str(user.id), commitment_id)
 
