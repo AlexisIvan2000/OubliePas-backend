@@ -25,10 +25,19 @@ async def lifespan(app: FastAPI):
     await dispose_engine()
 
 
+def docs_urls(debug: bool) -> dict:
+    # Le schema decrit toute la surface de l'API pour un service qui n'a qu'un
+    # client, deja au courant. Rien ne compense de le publier.
+    if debug:
+        return {"docs_url": "/docs", "redoc_url": "/redoc", "openapi_url": "/openapi.json"}
+    return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+
+
 app = FastAPI(
     title="OubliePas API",
     version="0.1.0",
     lifespan=lifespan,
+    **docs_urls(DEBUG),
 )
 
 app.state.limiter = limiter
