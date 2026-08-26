@@ -12,6 +12,9 @@ from models.db.commitments_db import DEFAULT_REMINDER_DAYS, MAX_REMINDER_DAYS
 LOCALES = ("fr", "en")
 DEFAULT_LOCALE = "fr"
 
+MAX_VERIFICATION_ATTEMPTS = 5
+
+
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (

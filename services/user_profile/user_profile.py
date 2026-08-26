@@ -25,6 +25,7 @@ from core.exceptions import (
 )
 from core.security import Security
 from core.validators import is_disposable_email, normalize_email
+from models.db.user_db import MAX_VERIFICATION_ATTEMPTS
 from models.schemas.user_schema import (
     ChangeEmail,
     ChangePassword,
@@ -40,7 +41,6 @@ from repositories.refresh_token_repository import RefreshTokenRepository
 from services.emailing.otp_service import OtpService
 from services.storage.object_storage import ObjectStorage, is_stored_key
 
-MAX_VERIFICATION_ATTEMPTS = 5
 CLEARABLE_PROFILE_FIELDS = frozenset({"last_name", "avatar_url"})
 
 

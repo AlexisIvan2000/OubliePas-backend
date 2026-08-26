@@ -17,13 +17,13 @@ from core.exceptions import (
 )
 from core.security import Security
 from core.validators import is_disposable_email, normalize_email
+from models.db.user_db import MAX_VERIFICATION_ATTEMPTS
 from models.schemas.auth_schema import UserCreate, UserLogin
 from repositories.auth_repository import AuthRepository
 from repositories.refresh_token_repository import RefreshTokenRepository
 from services.authentication.tokens import issue_tokens
 from services.emailing.otp_service import OtpService
 
-MAX_VERIFICATION_ATTEMPTS = 5
 MAX_LOGIN_ATTEMPTS_PER_HOUR = 20
 LOGIN_WINDOW_HOURS = 1
 
