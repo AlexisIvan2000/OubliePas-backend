@@ -64,6 +64,27 @@ async def update_occurrence(
     return await service.update_occurrence(str(user.id), occurrence_id, payload)
 
 
+@router.get("/trash", response_model=list[CommitmentResponse])
+async def list_trash(
+    user: CurrentUserDep,
+    service: CommitmentServiceDep,
+    type: CommitmentType | None = Query(default=None),
+):
+    return await service.list_deleted(str(user.id), commitment_type=type)
+
+
+@router.delete("/trash", response_model=DeletedCommitments)
+@limiter.limit("6/minute")
+async def empty_trash(
+    request: Request,
+    user: CurrentUserDep,
+    service: CommitmentServiceDep,
+    type: CommitmentType | None = Query(default=None),
+):
+    purged = await service.purge_now(str(user.id), commitment_type=type)
+    return {"deleted": purged["deleted"], "ids": []}
+
+
 @router.get("", response_model=list[CommitmentResponse])
 async def list_commitments(
     user: CurrentUserDep,

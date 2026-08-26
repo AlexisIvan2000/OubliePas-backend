@@ -120,6 +120,7 @@ class CommitmentResponse(BaseModel):
     notes: str | None
     next_due_date: date | None = None
     late_due_date: date | None = None
+    purge_on: date | None = None
     created_at: datetime
 
 

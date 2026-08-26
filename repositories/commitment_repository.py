@@ -73,6 +73,29 @@ class CommitmentRepository:
         result = await self.session.execute(query.order_by(Commitment.title))
         return list(result.scalars().all())
 
+    async def list_deleted(
+        self, user_id: str, *, commitment_type: str | None = None
+    ) -> list[Commitment]:
+        query = select(Commitment).where(
+            Commitment.user_id == user_id,
+            Commitment.deleted_at.is_not(None),
+        )
+        if commitment_type is not None:
+            query = query.where(Commitment.type == commitment_type)
+        result = await self.session.execute(query.order_by(Commitment.deleted_at.desc()))
+        return list(result.scalars().all())
+
+    async def purge_now(self, user_id: str, *, commitment_type: str | None = None) -> int:
+        query = delete(Commitment).where(
+            Commitment.user_id == user_id,
+            Commitment.deleted_at.is_not(None),
+        )
+        if commitment_type is not None:
+            query = query.where(Commitment.type == commitment_type)
+        result = await self.session.execute(query)
+        await self.session.flush()
+        return result.rowcount
+
     async def list_active(self) -> list[Commitment]:
         result = await self.session.execute(
             select(Commitment)

@@ -1160,4 +1160,98 @@ class TestDeletedStayHidden:
         )
 
         assert response.status_code == 404
+class TestTrash:
+    def test_lists_what_was_deleted(self, client, token):
+        created = create(client, token, netflix())
+        client.delete("/v1/commitments", headers=auth(token))
+
+        rows = client.get("/v1/commitments/trash", headers=auth(token)).json()
+
+        assert [row["id"] for row in rows] == [created["id"]]
+        assert rows[0]["title"] == "Netflix"
+
+    def test_it_is_empty_while_nothing_was_deleted(self, client, token):
+        create(client, token, netflix())
+
+        assert client.get("/v1/commitments/trash", headers=auth(token)).json() == []
+
+    def test_it_says_when_the_line_disappears(self, client, token):
+        create(client, token, netflix())
+        client.delete("/v1/commitments", headers=auth(token))
+
+        rows = client.get("/v1/commitments/trash", headers=auth(token)).json()
+
+        assert rows[0]["purge_on"] == (today_utc() + timedelta(days=30)).isoformat()
+
+    def test_a_live_commitment_has_no_purge_date(self, client, token):
+        created = create(client, token, netflix())
+
+        assert created["purge_on"] is None
+
+    def test_it_can_be_narrowed_to_one_type(self, client, token):
+        create(client, token, netflix())
+        create(client, token, loyer())
+        client.delete("/v1/commitments", headers=auth(token))
+
+        rows = client.get(
+            "/v1/commitments/trash", params={"type": "invoice"}, headers=auth(token)
+        ).json()
+
+        assert [row["title"] for row in rows] == ["Loyer"]
+
+    def test_restoring_empties_it(self, client, token):
+        create(client, token, netflix())
+        removed = client.delete("/v1/commitments", headers=auth(token)).json()
+
+        client.post(
+            "/v1/commitments/restore", json={"ids": removed["ids"]}, headers=auth(token)
+        )
+
+        assert client.get("/v1/commitments/trash", headers=auth(token)).json() == []
+
+    def test_emptying_it_destroys_the_rows(self, client, token, db):
+        create(client, token, netflix())
+        client.delete("/v1/commitments", headers=auth(token))
+
+        body = client.delete("/v1/commitments/trash", headers=auth(token)).json()
+
+        assert body["deleted"] == 1
+        assert db("select count(*) from commitments")[0][0] == 0
+        assert db("select count(*) from commitment_occurrences")[0][0] == 0
+
+    def test_emptying_it_spares_the_living(self, client, token, db):
+        kept = create(client, token, netflix())
+        doomed = create(client, token, netflix(title="Spotify"))
+        client.delete(f"/v1/commitments/{doomed['id']}", headers=auth(token))
+
+        client.delete("/v1/commitments/trash", headers=auth(token))
+
+        rows = client.get("/v1/commitments", headers=auth(token)).json()
+        assert [row["id"] for row in rows] == [kept["id"]]
+
+    def test_emptying_one_type_spares_the_other(self, client, token):
+        create(client, token, netflix())
+        create(client, token, loyer())
+        client.delete("/v1/commitments", headers=auth(token))
+
+        client.delete(
+            "/v1/commitments/trash", params={"type": "subscription"}, headers=auth(token)
+        )
+
+        rows = client.get("/v1/commitments/trash", headers=auth(token)).json()
+        assert [row["title"] for row in rows] == ["Loyer"]
+
+    def test_it_never_shows_another_account(self, client, token, other_token):
+        create(client, token, netflix())
+        client.delete("/v1/commitments", headers=auth(token))
+
+        assert client.get("/v1/commitments/trash", headers=auth(other_token)).json() == []
+
+    def test_the_routes_are_not_captured_by_the_id_route(self, client, token):
+        assert client.get("/v1/commitments/trash", headers=auth(token)).status_code == 200
+        assert client.delete("/v1/commitments/trash", headers=auth(token)).status_code == 200
+
+    def test_they_need_a_token(self, client):
+        assert client.get("/v1/commitments/trash").status_code == 401
+        assert client.delete("/v1/commitments/trash").status_code == 401
 

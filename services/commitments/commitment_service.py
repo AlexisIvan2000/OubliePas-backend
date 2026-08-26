@@ -11,6 +11,7 @@ from core.exceptions import (
 )
 from models.db.commitments_db import (
     DEFAULT_REMINDER_DAYS,
+    PURGE_AFTER_DAYS,
     Commitment,
     CommitmentOccurrence,
 )
@@ -35,6 +36,12 @@ CLEARABLE_FIELDS = frozenset(
 ACTION_FIELDS = frozenset({"trial_ends_on", "cancellation_notice_days"})
 MAX_RANGE_DAYS = 400
 MAX_LATE_ROWS = 50
+
+
+def purge_on(deleted_at: datetime | None) -> date | None:
+    if deleted_at is None:
+        return None
+    return (deleted_at + timedelta(days=PURGE_AFTER_DAYS)).date()
 CENTS = Decimal("0.01")
 
 
@@ -79,6 +86,7 @@ class CommitmentService:
             update={
                 "next_due_date": due.next_due if due else None,
                 "late_due_date": due.late if due else None,
+                "purge_on": purge_on(commitment.deleted_at),
             }
         )
 
@@ -176,6 +184,15 @@ class CommitmentService:
 
     async def restore(self, user_id: str, ids: list) -> dict:
         return {"restored": await self.repo.restore(user_id, ids)}
+
+    async def list_deleted(
+        self, user_id: str, *, commitment_type: str | None = None
+    ) -> list[CommitmentResponse]:
+        commitments = await self.repo.list_deleted(user_id, commitment_type=commitment_type)
+        return [self._commitment_response(commitment, None) for commitment in commitments]
+
+    async def purge_now(self, user_id: str, *, commitment_type: str | None = None) -> dict:
+        return {"deleted": await self.repo.purge_now(user_id, commitment_type=commitment_type)}
 
     async def list_occurrences(
         self,
