@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import OPERATOR_EMAIL
 from models.db.commitments_db import (
     PURGE_AFTER_DAYS,
     PURGE_REMINDERS_AFTER_DAYS,
@@ -19,7 +20,31 @@ from services.notifications.reminder_service import ReminderService
 
 LOCK_KEY = 8142026
 
+# 80 % des 100 envois quotidiens du plan gratuit Resend. La marge de 20 %
+# couvre l'angle mort du compteur : les transactionnels (codes de verification,
+# reinitialisations) prennent aussi du quota sans passer par emails_sent.
+RESEND_DAILY_ALERT_THRESHOLD = 80
+
 logger = logging.getLogger(__name__)
+
+
+def should_alert(emails_sent: int, operator: str | None) -> bool:
+    return bool(operator) and emails_sent > RESEND_DAILY_ALERT_THRESHOLD
+
+
+async def alert_operator(reference: date, emails_sent: int) -> None:
+    # L'alerte est le thermometre, pas le patient : si elle echoue, le job
+    # continue et son code de sortie reste celui des rappels utilisateurs.
+    try:
+        await EmailSender().send_admin_email(
+            OPERATOR_EMAIL,
+            "OubliePas : le quota d'envoi approche",
+            f"Le passage du {reference.isoformat()} a envoye {emails_sent} rappels, "
+            f"au-dela du seuil de {RESEND_DAILY_ALERT_THRESHOLD} sur les 100 envois "
+            "quotidiens du plan gratuit Resend, transactionnels non comptes.",
+        )
+    except Exception:
+        logger.exception("quota alert could not be delivered to the operator")
 
 
 async def run_daily(session: AsyncSession, *, today: date | None = None) -> dict:
@@ -38,6 +63,9 @@ async def run_daily(session: AsyncSession, *, today: date | None = None) -> dict
     reminders = await ReminderService(repo, AuthRepository(session), EmailSender()).send_due(
         on_date=reference
     )
+
+    if should_alert(reminders["emails_sent"], OPERATOR_EMAIL):
+        await alert_operator(reference, reminders["emails_sent"])
 
     return {
         "date": reference.isoformat(),

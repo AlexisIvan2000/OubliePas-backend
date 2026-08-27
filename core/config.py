@@ -93,6 +93,9 @@ RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "hello@oubliepas.com")
 RESEND_FROM_NAME = os.getenv("RESEND_FROM_NAME", "OubliePas")
 RESEND_FROM_EMAIL_SUPPORT = os.getenv("RESEND_FROM_EMAIL_SUPPORT", "support@oubliepas.com")
 RESEND_FROM_EMAIL_REMINDER = os.getenv("RESEND_FROM_EMAIL_REMINDER", "reminder@oubliepas.com")
+# Supervision, pas dependance : absente, l'alerte de quota se tait au lieu
+# d'empecher le demarrage.
+OPERATOR_EMAIL = os.getenv("OPERATOR_EMAIL")
 
 API_S3 = os.getenv("API_S3")
 S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID")
