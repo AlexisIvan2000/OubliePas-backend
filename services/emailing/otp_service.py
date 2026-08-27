@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
-from core.exceptions import TooManyCodeRequests
+from core.exceptions import TooManyCodeRequests, TooManyVerificationAttempts
 from core.security import Security
+from models.db.user_db import MAX_VERIFICATION_ATTEMPTS
 from repositories.auth_repository import AuthRepository
 from services.emailing.email_sender import EmailSender
 from services.emailing.messages import DEFAULT_LOCALE
@@ -14,6 +15,35 @@ CODE_COLUMNS = {
     "reset": ("reset_code_hash", "reset_code_expires_at"),
     "email_change": ("email_change_code_hash", "email_change_code_expires_at"),
 }
+
+
+
+async def check_otp(repo, db_user, kind: str, code: str, *, expired, invalid) -> None:
+    """Le meme sequenceur pour les trois codes, les erreurs en parametres.
+
+    Les trois flux n'appellent pas les memes exceptions : la reinitialisation
+    dit ResetCodeExpired la ou les deux autres disent VerificationCodeExpired,
+    et le front s'appuie sur ces codes pour choisir son message.
+    """
+    user_id = str(db_user.id)
+
+    if await repo.attempts(user_id, kind) >= MAX_VERIFICATION_ATTEMPTS:
+        raise TooManyVerificationAttempts()
+
+    # L'increment precede la comparaison, et c'est la propriete de securite :
+    # compte apres coup, un essai qui echoue ne couterait rien des lors que la
+    # transaction est validee malgre l'exception, et le plafond ne tiendrait
+    # plus rien.
+    await repo.bump_attempts(user_id, kind)
+
+    hash_column, expires_column = CODE_COLUMNS[kind]
+
+    expires_at = getattr(db_user, expires_column)
+    if not expires_at or expires_at < datetime.now(timezone.utc):
+        raise expired()
+
+    if not Security.verify_otp(code, getattr(db_user, hash_column)):
+        raise invalid()
 
 
 class OtpService:

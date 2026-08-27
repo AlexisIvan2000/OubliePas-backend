@@ -167,7 +167,11 @@ class TestUpdateProfile:
         assert response.status_code == 422
 
 
-class TestAvatarUrl:
+class TestAvatarUrlIsNotWritable:
+    # Le champ portait la photo Google et restait ouvert au client : il
+    # contournait le plafond de 9 Mo, le nettoyeur d'image et le stockage, et
+    # faisait fuir l'adresse IP du visiteur vers le serveur de son choix. Le
+    # 422 est desormais la specification, pour toute URL, sure ou non.
     @pytest.mark.parametrize(
         "url",
         [
@@ -177,41 +181,36 @@ class TestAvatarUrl:
             "ftp://evil.com/a.png",
             "pas-une-url",
             "avatars/8f3a-portrait.png",
+            "https://cdn.x.com/a.png",
+            "https://cdn.x.com/" + "a" * 2100,
         ],
     )
-    def test_dangerous_or_malformed_urls_are_rejected(self, client, token, url):
+    def test_no_url_can_be_posted_on_the_profile(self, client, token, url):
         response = client.patch("/v1/users/me", headers=auth(token), json={"avatar_url": url})
+
         assert response.status_code == 422
 
-    def test_https_url_is_accepted(self, client, token, db, verified):
-        response = client.patch(
-            "/v1/users/me", headers=auth(token), json={"avatar_url": "https://cdn.x.com/a.png"}
+    def test_a_photo_written_by_the_server_survives_the_attempt(
+        self, client, token, db, verified
+    ):
+        db(
+            "update users set avatar_url = 'https://lh3.google.test/photo' where email = :e",
+            e=verified["email"],
         )
-        assert response.status_code == 200
+
+        client.patch("/v1/users/me", headers=auth(token), json={"avatar_url": None})
+
         assert db("select avatar_url from users where email = :e", e=verified["email"]) == [
-            ("https://cdn.x.com/a.png",)
+            ("https://lh3.google.test/photo",)
         ]
 
-    def test_stored_value_is_a_plain_string(self, client, token):
-        client.patch(
-            "/v1/users/me", headers=auth(token), json={"avatar_url": "https://cdn.x.com/a.png"}
-        )
-        body = client.get("/v1/users/me", headers=auth(token)).json()
-        assert body["avatar_url"] == "https://cdn.x.com/a.png"
+    def test_an_unknown_field_is_refused_rather_than_ignored(self, client, token):
+        response = client.patch("/v1/users/me", headers=auth(token), json={"favorite_color": "bleu"})
 
-    def test_overlong_url_is_rejected(self, client, token):
-        url = "https://cdn.x.com/" + "a" * 2100
-        response = client.patch("/v1/users/me", headers=auth(token), json={"avatar_url": url})
         assert response.status_code == 422
 
-    def test_avatar_can_still_be_cleared(self, client, token, db, verified):
-        client.patch(
-            "/v1/users/me", headers=auth(token), json={"avatar_url": "https://cdn.x.com/a.png"}
-        )
-        response = client.patch("/v1/users/me", headers=auth(token), json={"avatar_url": None})
-        assert response.status_code == 200
-        assert db("select avatar_url from users where email = :e", e=verified["email"]) == [(None,)]
 
+class TestProfileFieldLimits:
     def test_too_long_first_name_is_rejected(self, client, token):
         response = client.patch("/v1/users/me", headers=auth(token), json={"first_name": "a" * 101})
         assert response.status_code == 422

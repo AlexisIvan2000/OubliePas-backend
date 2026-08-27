@@ -7,6 +7,12 @@ from services.storage import object_storage
 from services.user_profile.avatar_service import MAX_AVATAR_BYTES
 
 
+def pose_photo_google(db, email, url):
+    # Le profil n'ecrit plus avatar_url : seule la connexion Google la pose.
+    # Les tests la posent donc comme le serveur, en base.
+    db("update users set avatar_url = :u where email = :e", u=url, e=email)
+
+
 def encode(fmt: str, size=(120, 90), exif=None) -> bytes:
     buffer = BytesIO()
     image = Image.new("RGB", size, (200, 120, 60))
@@ -220,9 +226,9 @@ class TestHasCustomAvatar:
 
         assert response.json()["has_custom_avatar"] is False
 
-    def test_false_when_only_a_google_photo_is_set(self, client, verified, bucket):
+    def test_false_when_only_a_google_photo_is_set(self, client, verified, bucket, db):
         google = "https://lh3.googleusercontent.com/a/portrait.jpg"
-        client.patch("/v1/users/me", headers=auth(verified["tokens"]), json={"avatar_url": google})
+        pose_photo_google(db, verified["email"], google)
 
         response = client.get("/v1/users/me", headers=auth(verified["tokens"]))
 
@@ -243,7 +249,7 @@ class TestGooglePhotoSurvives:
         self, client, verified, bucket, db
     ):
         google = "https://lh3.googleusercontent.com/a/portrait.jpg"
-        client.patch("/v1/users/me", headers=auth(verified["tokens"]), json={"avatar_url": google})
+        pose_photo_google(db, verified["email"], google)
 
         response = upload(client, verified["tokens"], JPEG)
 
@@ -252,9 +258,9 @@ class TestGooglePhotoSurvives:
             (google,)
         ]
 
-    def test_deleting_the_upload_brings_the_google_photo_back(self, client, verified, bucket):
+    def test_deleting_the_upload_brings_the_google_photo_back(self, client, verified, bucket, db):
         google = "https://lh3.googleusercontent.com/a/portrait.jpg"
-        client.patch("/v1/users/me", headers=auth(verified["tokens"]), json={"avatar_url": google})
+        pose_photo_google(db, verified["email"], google)
         upload(client, verified["tokens"], JPEG)
 
         response = client.delete(AVATAR_URL, headers=auth(verified["tokens"]))
@@ -265,10 +271,10 @@ class TestGooglePhotoSurvives:
         assert bucket == {}
 
     def test_deleting_without_an_upload_leaves_the_google_photo_alone(
-        self, client, verified, bucket
+        self, client, verified, bucket, db
     ):
         google = "https://lh3.googleusercontent.com/a/portrait.jpg"
-        client.patch("/v1/users/me", headers=auth(verified["tokens"]), json={"avatar_url": google})
+        pose_photo_google(db, verified["email"], google)
         bucket["sentinel"] = (b"", "")
 
         response = client.delete(AVATAR_URL, headers=auth(verified["tokens"]))
@@ -304,9 +310,9 @@ class TestStorageNotConfigured:
         assert response.status_code == 200
         assert response.json()["avatar_url"] is None
 
-    def test_it_falls_back_to_the_google_photo(self, client, verified, bucket, monkeypatch):
+    def test_it_falls_back_to_the_google_photo(self, client, verified, bucket, monkeypatch, db):
         google = "https://lh3.googleusercontent.com/a/portrait.jpg"
-        client.patch("/v1/users/me", headers=auth(verified["tokens"]), json={"avatar_url": google})
+        pose_photo_google(db, verified["email"], google)
         upload(client, verified["tokens"], JPEG)
         monkeypatch.setattr(object_storage, "is_configured", lambda: False)
 

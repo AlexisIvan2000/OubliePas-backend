@@ -194,9 +194,11 @@ class TestLinkingAnExistingAccount:
         ) == [(True, None)]
 
     def test_keeps_an_avatar_the_user_already_chose(self, client, google, verified, db):
-        token = verified["tokens"]["access_token"]
-        client.patch(
-            "/v1/users/me", headers=auth(token), json={"avatar_url": "https://cdn.x.com/a.png"}
+        # La photo est posee en base, comme le serveur la pose : le profil ne
+        # laisse plus le client ecrire ce champ.
+        db(
+            "update users set avatar_url = 'https://cdn.x.com/a.png' where email = :e",
+            e=verified["email"],
         )
 
         google["responds"](email=verified["email"])

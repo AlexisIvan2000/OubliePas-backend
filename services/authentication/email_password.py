@@ -11,18 +11,16 @@ from core.exceptions import (
     InvalidVerificationRequest,
     NoPendingEmailChange,
     TokenReuseDetected,
-    TooManyVerificationAttempts,
     UserNotFound,
     VerificationCodeExpired,
 )
 from core.security import Security
 from core.validators import is_disposable_email, normalize_email
-from models.db.user_db import MAX_VERIFICATION_ATTEMPTS
 from models.schemas.auth_schema import UserCreate, UserLogin
 from repositories.auth_repository import AuthRepository
 from repositories.refresh_token_repository import RefreshTokenRepository
 from services.authentication.tokens import issue_tokens
-from services.emailing.otp_service import OtpService
+from services.emailing.otp_service import OtpService, check_otp
 
 MAX_LOGIN_ATTEMPTS_PER_HOUR = 20
 LOGIN_WINDOW_HOURS = 1
@@ -120,17 +118,14 @@ class EmailPasswordAuth:
         if not db_user.is_active:
             raise AccountDisabled()
 
-        if await self.repo.attempts(str(db_user.id), "verification") >= MAX_VERIFICATION_ATTEMPTS:
-            raise TooManyVerificationAttempts()
-
-        await self.repo.bump_attempts(str(db_user.id), "verification")
-
-        expires_at = db_user.verification_code_expires_at
-        if not expires_at or expires_at < datetime.now(timezone.utc):
-            raise VerificationCodeExpired()
-
-        if not Security.verify_otp(code, db_user.verification_code_hash):
-            raise InvalidVerificationCode()
+        await check_otp(
+            self.repo,
+            db_user,
+            "verification",
+            code,
+            expired=VerificationCodeExpired,
+            invalid=InvalidVerificationCode,
+        )
 
         user_id = str(db_user.id)
         updated = await self.repo.update_verification_status(user_id)

@@ -1,13 +1,12 @@
 import re
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from core.validators import normalize_currency
 from models.db.commitments_db import MAX_REMINDER_DAYS
 
 SPECIAL_CHARACTERS = r"[!@#$%^&*(),.?\":{}|<>_+=\[\]\\;'`~-]"
-MAX_AVATAR_URL_LENGTH = 2048
 
 
 def validate_password_strength(value: str) -> str:
@@ -23,23 +22,22 @@ def validate_password_strength(value: str) -> str:
 
 
 class UpdateProfile(BaseModel):
+    # avatar_url n'est pas ici : elle porte la photo Google, ecrite par le
+    # serveur. Ouverte au client, elle contournait le plafond, le nettoyeur
+    # d'image et le stockage, et faisait fuir l'adresse IP du visiteur vers le
+    # serveur de son choix a chaque affichage. Les inconnus sont refuses plutot
+    # qu'ignores, pour que le refus se voie.
+    model_config = ConfigDict(extra="forbid")
+
     first_name: str | None = Field(default=None, min_length=1, max_length=100)
     last_name: str | None = Field(default=None, max_length=100)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
-    avatar_url: HttpUrl | None = None
     reminder_email_enabled: bool | None = None
     reminder_notice_enabled: bool | None = None
     reminder_overdue_enabled: bool | None = None
     reminder_action_enabled: bool | None = None
     default_reminder_days: int | None = Field(default=None, ge=0, le=MAX_REMINDER_DAYS)
     locale: Literal["fr", "en"] | None = None
-
-    @field_validator("avatar_url")
-    @classmethod
-    def validate_avatar_url(cls, value: HttpUrl | None) -> HttpUrl | None:
-        if value is not None and len(str(value)) > MAX_AVATAR_URL_LENGTH:
-            raise ValueError(f"Avatar URL must be at most {MAX_AVATAR_URL_LENGTH} characters")
-        return value
 
     @field_validator("currency")
     @classmethod
@@ -93,5 +91,8 @@ class ConfirmEmailChange(BaseModel):
 
 
 class DeleteAccount(BaseModel):
-    password: str | None = Field(default=None, max_length=128)
+    # Aucun plafond sur le mot de passe : un 422 sur un mot de passe trop long
+    # dirait a l'appelant que sa longueur, elle, ne convenait pas. Le service le
+    # traite comme un mot de passe faux, verification a vide comprise.
+    password: str | None = None
     confirmation: str | None = Field(default=None, max_length=255)

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+import logging
 
 from core.exceptions import (
     AccountDisabled,
@@ -19,13 +19,11 @@ from core.exceptions import (
     SameEmailAsCurrent,
     SamePasswordAsBefore,
     TooManyCodeRequests,
-    TooManyVerificationAttempts,
     UserNotFound,
     VerificationCodeExpired,
 )
-from core.security import Security
+from core.security import MAX_PASSWORD_LENGTH, Security
 from core.validators import is_disposable_email, normalize_email
-from models.db.user_db import MAX_VERIFICATION_ATTEMPTS
 from models.schemas.user_schema import (
     ChangeEmail,
     ChangePassword,
@@ -38,10 +36,12 @@ from models.schemas.user_schema import (
 )
 from repositories.auth_repository import AuthRepository
 from repositories.refresh_token_repository import RefreshTokenRepository
-from services.emailing.otp_service import OtpService
+from services.emailing.otp_service import OtpService, check_otp
 from services.storage.object_storage import ObjectStorage, is_stored_key
 
-CLEARABLE_PROFILE_FIELDS = frozenset({"last_name", "avatar_url"})
+logger = logging.getLogger(__name__)
+
+CLEARABLE_PROFILE_FIELDS = frozenset({"last_name"})
 
 
 def confirmation_matches(confirmation: str, email: str) -> bool:
@@ -109,6 +109,9 @@ class UserProfile:
         if db_user.password_hash:
             raise PasswordAlreadySet()
 
+        # Pas de revocation des sessions, contrairement au changement et a la
+        # reinitialisation : poser un premier mot de passe ajoute une cle, il
+        # n'en remplace aucune, donc aucune session ouverte n'est suspecte.
         await self.repo.update_user(user_id, {
             "password_hash": await Security.hash_password_async(data.new_password),
         })
@@ -136,17 +139,14 @@ class UserProfile:
             raise AccountDisabled()
 
         user_id = str(db_user.id)
-        if await self.repo.attempts(user_id, "reset") >= MAX_VERIFICATION_ATTEMPTS:
-            raise TooManyVerificationAttempts()
-
-        await self.repo.bump_attempts(user_id, "reset")
-
-        expires_at = db_user.reset_code_expires_at
-        if not expires_at or expires_at < datetime.now(timezone.utc):
-            raise ResetCodeExpired()
-
-        if not Security.verify_otp(data.code, db_user.reset_code_hash):
-            raise InvalidResetCode()
+        await check_otp(
+            self.repo,
+            db_user,
+            "reset",
+            data.code,
+            expired=ResetCodeExpired,
+            invalid=InvalidResetCode,
+        )
 
         if await Security.verify_password_async(db_user.password_hash, data.new_password):
             raise SamePasswordAsBefore()
@@ -193,17 +193,14 @@ class UserProfile:
         if not db_user.email_change_code_hash:
             raise NoEmailChangeCode()
 
-        if await self.repo.attempts(user_id, "email_change") >= MAX_VERIFICATION_ATTEMPTS:
-            raise TooManyVerificationAttempts()
-
-        await self.repo.bump_attempts(user_id, "email_change")
-
-        expires_at = db_user.email_change_code_expires_at
-        if not expires_at or expires_at < datetime.now(timezone.utc):
-            raise VerificationCodeExpired()
-
-        if not Security.verify_otp(data.code, db_user.email_change_code_hash):
-            raise InvalidVerificationCode()
+        await check_otp(
+            self.repo,
+            db_user,
+            "email_change",
+            data.code,
+            expired=VerificationCodeExpired,
+            invalid=InvalidVerificationCode,
+        )
 
         existing = await self.repo.get_user_by_email(pending_email)
         if existing and str(existing.id) != user_id:
@@ -217,15 +214,21 @@ class UserProfile:
         })
         await self.repo.clear_attempts(user_id, "email_change")
 
+        # Pas de revocation non plus : le jeton porte l'identifiant du compte,
+        # pas son adresse. Les sessions ouvertes restent valides et exactes.
         return {"message": "Email changed successfully"}
 
     async def delete_account(self, user_id: str, data: DeleteAccount):
         db_user = await self._get_user(user_id)
 
         if db_user.password_hash:
-            if not data.password or not await Security.verify_password_async(
-                db_user.password_hash, data.password
-            ):
+            if not data.password or len(data.password) > MAX_PASSWORD_LENGTH:
+                # Meme reponse et meme travail qu'un mot de passe faux : sans la
+                # verification a vide, le temps de reponse dirait que celui-ci
+                # n'a meme pas ete compare.
+                await Security.dummy_verify_async()
+                raise IncorrectPassword()
+            if not await Security.verify_password_async(db_user.password_hash, data.password):
                 raise IncorrectPassword()
         elif not confirmation_matches(data.confirmation or "", db_user.email):
             raise InvalidDeletionConfirmation()
@@ -234,7 +237,10 @@ class UserProfile:
 
         await self.repo.delete_user(user_id)
 
-        if is_stored_key(avatar_key):
-            await self.storage.delete(avatar_key)
+        if is_stored_key(avatar_key) and not await self.storage.delete(avatar_key):
+            # Le compte est parti, le fichier non. Sans cette ligne, la photo
+            # resterait dans le seau sans que rien ne le dise. La reprise
+            # automatique reste a construire.
+            logger.error("avatar %s left behind after account deletion", avatar_key)
 
         return {"message": "Account deleted successfully"}

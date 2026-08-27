@@ -256,3 +256,37 @@ class TestAfterwards:
         )
 
         assert response.status_code == 201
+
+
+class TestPasswordLengthIsNotAnOracle:
+    def test_a_password_beyond_the_ceiling_answers_like_a_wrong_one(self, client, verified):
+        # Avant, la longueur sortait en 422 "certains champs sont invalides" :
+        # la reponse disait a l'appelant ce qui clochait, et ce n'etait pas le
+        # mot de passe.
+        response = client.post(
+            "/v1/users/me/delete",
+            headers={"Authorization": f"Bearer {verified['tokens']['access_token']}"},
+            json={"password": "a" * 200},
+        )
+
+        assert response.status_code == 401
+        assert response.json()["detail"]["code"] == "INCORRECT_PASSWORD"
+
+    def test_a_wrong_password_of_normal_length_answers_the_same(self, client, verified):
+        response = client.post(
+            "/v1/users/me/delete",
+            headers={"Authorization": f"Bearer {verified['tokens']['access_token']}"},
+            json={"password": "MauvaisMotDePasse1!"},
+        )
+
+        assert response.status_code == 401
+        assert response.json()["detail"]["code"] == "INCORRECT_PASSWORD"
+
+    def test_the_account_is_still_there(self, client, verified, db):
+        client.post(
+            "/v1/users/me/delete",
+            headers={"Authorization": f"Bearer {verified['tokens']['access_token']}"},
+            json={"password": "a" * 200},
+        )
+
+        assert db("select count(*) from users where email = :e", e=verified["email"]) == [(1,)]
