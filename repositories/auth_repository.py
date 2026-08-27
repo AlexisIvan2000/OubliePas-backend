@@ -1,7 +1,11 @@
-from sqlalchemy import select, update
+import uuid
+from datetime import datetime, timezone
+
+from sqlalchemy import delete, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.db import User
+from models.db import User, VerificationAttempt
 
 
 class AuthRepository:
@@ -41,23 +45,18 @@ class AuthRepository:
             "is_verified": True,
             "verification_code_hash": None,
             "verification_code_expires_at": None,
-            "verification_attempts": 0,
         })
 
-    async def save_reset_code(
-        self, email: str, code_hash: str, expires_at, sent_at, resend_count: int
-    ) -> User | None:
-        await self.session.execute(
-            update(User).where(User.email == email).values(
-                reset_code_hash=code_hash,
-                reset_code_expires_at=expires_at,
-                verification_attempts=0,
-                last_code_sent_at=sent_at,
-                code_resend_count=resend_count,
-            )
-        )
+    # Le mot de passe oublie ne connait que l'adresse : l'utilisateur n'est pas
+    # authentifie a ce moment-la. C'est la seule ecriture de code qui ne passe
+    # pas par l'identifiant, et la raison pour laquelle les emetteurs d'OTP ne
+    # peuvent pas etre fondus en un seul appel de depot.
+    async def update_user_by_email(self, email: str, data: dict) -> User | None:
+        await self.session.execute(update(User).where(User.email == email).values(**data))
         await self.session.flush()
-        result = await self.session.execute(select(User).where(User.email == email))
+        result = await self.session.execute(
+            select(User).where(User.email == email).execution_options(populate_existing=True)
+        )
         return result.scalar_one_or_none()
 
     async def update_password(self, user_id: str, new_password_hash: str) -> User:
@@ -65,20 +64,48 @@ class AuthRepository:
             "password_hash": new_password_hash,
             "reset_code_hash": None,
             "reset_code_expires_at": None,
-            "verification_attempts": 0,
         })
 
-    async def increment_verification_attempts(self, user_id: str) -> None:
-        await self.session.execute(
-            update(User).where(User.id == user_id).values(
-                verification_attempts=User.verification_attempts + 1
+    async def attempts(self, user_id: str, kind: str) -> int:
+        result = await self.session.execute(
+            select(VerificationAttempt.count).where(
+                VerificationAttempt.user_id == user_id,
+                VerificationAttempt.kind == kind,
             )
         )
-        await self.session.flush()
+        return result.scalar_one_or_none() or 0
 
-    async def reset_verification_attempts(self, user_id: str) -> None:
+    async def bump_attempts(self, user_id: str, kind: str) -> int:
+        # Une seule aller-retour, et la contrainte d'unicite arbitre deux essais
+        # simultanes au lieu d'un lire-puis-ecrire qui en perdrait un.
+        statement = (
+            pg_insert(VerificationAttempt)
+            .values(
+                id=uuid.uuid4(),
+                user_id=user_id,
+                kind=kind,
+                count=1,
+                updated_at=datetime.now(timezone.utc),
+            )
+            .on_conflict_do_update(
+                constraint="uq_verification_attempt_user_kind",
+                set_={
+                    "count": VerificationAttempt.count + 1,
+                    "updated_at": datetime.now(timezone.utc),
+                },
+            )
+            .returning(VerificationAttempt.count)
+        )
+        result = await self.session.execute(statement)
+        await self.session.flush()
+        return result.scalar_one()
+
+    async def clear_attempts(self, user_id: str, kind: str) -> None:
         await self.session.execute(
-            update(User).where(User.id == user_id).values(verification_attempts=0)
+            delete(VerificationAttempt).where(
+                VerificationAttempt.user_id == user_id,
+                VerificationAttempt.kind == kind,
+            )
         )
         await self.session.flush()
 

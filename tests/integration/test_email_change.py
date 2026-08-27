@@ -2,6 +2,18 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
+
+def essais(db, email, kind):
+    rows = db(
+        "select a.count from verification_attempts a"
+        " join users u on u.id = a.user_id"
+        " where u.email = :e and a.kind = :k",
+        e=email,
+        k=kind,
+    )
+    return rows[0][0] if rows else 0
+
+
 NEW_EMAIL = "nouvelle@example.com"
 
 
@@ -93,9 +105,9 @@ class TestRequestEmailChange:
 
     def test_email_taken_by_someone_else_is_rejected(self, client, verified, token, db):
         db(
-            "insert into users (id, first_name, email, currency, verification_attempts,"
+            "insert into users (id, first_name, email, currency,"
             " code_resend_count, is_verified, is_active, role, created_at, updated_at)"
-            " values (gen_random_uuid(), 'Autre', :e, 'CAD', 0, 0, true, true, 'user', now(), now())",
+            " values (gen_random_uuid(), 'Autre', :e, 'CAD', 0, true, true, 'user', now(), now())",
             e=NEW_EMAIL,
         )
         response = client.post(
@@ -145,10 +157,10 @@ class TestConfirmEmailChange:
             "/v1/users/me/confirm-email-change", headers=auth(token), json={"code": requested}
         )
         assert db(
-            "select pending_email, email_change_code_hash, verification_attempts"
-            " from users where email = :e",
+            "select pending_email, email_change_code_hash from users where email = :e",
             e=NEW_EMAIL,
-        ) == [(None, None, 0)]
+        ) == [(None, None)]
+        assert essais(db, NEW_EMAIL, "email_change") == 0
 
     def test_login_works_with_the_new_email(self, client, verified, token, requested):
         client.post(
@@ -186,9 +198,7 @@ class TestConfirmEmailChange:
         client.post(
             "/v1/users/me/confirm-email-change", headers=auth(token), json={"code": "000000"}
         )
-        assert db(
-            "select verification_attempts from users where email = :e", e=verified["email"]
-        ) == [(1,)]
+        assert essais(db, verified["email"], "email_change") == 1
 
     def test_locks_after_five_failures(self, client, token, requested):
         for _ in range(5):
@@ -230,9 +240,9 @@ class TestConfirmEmailChange:
         self, client, token, requested, db
     ):
         db(
-            "insert into users (id, first_name, email, currency, verification_attempts,"
+            "insert into users (id, first_name, email, currency,"
             " code_resend_count, is_verified, is_active, role, created_at, updated_at)"
-            " values (gen_random_uuid(), 'Autre', :e, 'CAD', 0, 0, true, true, 'user', now(), now())",
+            " values (gen_random_uuid(), 'Autre', :e, 'CAD', 0, true, true, 'user', now(), now())",
             e=NEW_EMAIL,
         )
         response = client.post(
@@ -297,3 +307,75 @@ class TestResendEmailChange:
 
     def test_requires_authentication(self, client):
         assert client.post("/v1/users/me/resend-email-change").status_code == 401
+
+
+class TestAttemptsAreScopedToTheirFlow:
+    def rate(self, client, email, code="000000"):
+        return client.post(
+            "/v1/auth/reset-password",
+            json={"email": email, "code": code, "new_password": "AutreMotDePasse1!"},
+        )
+
+    def test_failing_the_reset_does_not_lock_the_email_change(
+        self, client, verified, token, requested, db
+    ):
+        # Avant la table par flux, cinq codes de reinitialisation faux
+        # renvoyaient un 429 sur la confirmation d'adresse, code correct en main.
+        assert client.post("/v1/auth/forgot-password", json={"email": verified["email"]}).status_code == 200
+        for _ in range(5):
+            self.rate(client, verified["email"])
+
+        confirme = client.post(
+            "/v1/users/me/confirm-email-change", headers=auth(token), json={"code": requested}
+        )
+
+        assert confirme.status_code == 200, confirme.text
+        # Le compteur suit le compte, pas l'adresse : elle vient de changer.
+        assert essais(db, NEW_EMAIL, "reset") == 5
+
+    def test_asking_a_new_code_does_not_unlock_another_flow(self, client, verified, token, db):
+        assert client.post("/v1/auth/forgot-password", json={"email": verified["email"]}).status_code == 200
+        for _ in range(5):
+            self.rate(client, verified["email"])
+        assert essais(db, verified["email"], "reset") == 5
+
+        client.post(
+            "/v1/users/me/change-email",
+            headers=auth(token),
+            json={"new_email": NEW_EMAIL, "password": verified["password"]},
+        )
+
+        assert essais(db, verified["email"], "reset") == 5
+        assert self.rate(client, verified["email"]).status_code == 429
+
+    def test_a_new_code_of_the_same_flow_gives_its_attempts_back(self, client, verified, token, db):
+        client.post(
+            "/v1/users/me/change-email",
+            headers=auth(token),
+            json={"new_email": NEW_EMAIL, "password": verified["password"]},
+        )
+        for _ in range(3):
+            client.post(
+                "/v1/users/me/confirm-email-change", headers=auth(token), json={"code": "000000"}
+            )
+        assert essais(db, verified["email"], "email_change") == 3
+
+        client.post(
+            "/v1/users/me/change-email",
+            headers=auth(token),
+            json={"new_email": "encore@example.com", "password": verified["password"]},
+        )
+
+        assert essais(db, verified["email"], "email_change") == 0
+
+    def test_the_three_counters_live_side_by_side(self, client, verified, token, requested, db):
+        assert client.post("/v1/auth/forgot-password", json={"email": verified["email"]}).status_code == 200
+        self.rate(client, verified["email"])
+        self.rate(client, verified["email"])
+        client.post(
+            "/v1/users/me/confirm-email-change", headers=auth(token), json={"code": "000000"}
+        )
+
+        assert essais(db, verified["email"], "reset") == 2
+        assert essais(db, verified["email"], "email_change") == 1
+        assert essais(db, verified["email"], "verification") == 0

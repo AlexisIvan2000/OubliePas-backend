@@ -2,7 +2,16 @@ import uuid
 from datetime import datetime, timezone
 
 import sqlalchemy as sa
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,6 +22,9 @@ LOCALES = ("fr", "en")
 DEFAULT_LOCALE = "fr"
 
 MAX_VERIFICATION_ATTEMPTS = 5
+# Un compteur par flux : echouer sur la reinitialisation ne doit ni bloquer la
+# confirmation d'adresse, ni la deverrouiller en demandant un autre code.
+VERIFICATION_KINDS = ("verification", "reset", "email_change")
 
 
 class User(Base):
@@ -42,7 +54,6 @@ class User(Base):
     reset_code_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     email_change_code_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     email_change_code_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    verification_attempts: Mapped[int] = mapped_column(Integer, default=0)
     last_code_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     code_resend_count: Mapped[int] = mapped_column(Integer, default=0)
     failed_login_count: Mapped[int] = mapped_column(
@@ -107,3 +118,23 @@ class RefreshToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     user: Mapped["User"] = relationship(back_populates="refresh_tokens")
+
+class VerificationAttempt(Base):
+    __tablename__ = "verification_attempts"
+    __table_args__ = (
+        UniqueConstraint("user_id", "kind", name="uq_verification_attempt_user_kind"),
+        CheckConstraint(
+            "kind IN (" + ", ".join(repr(code) for code in VERIFICATION_KINDS) + ")",
+            name="verification_attempts_kind_check",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(20))
+    count: Mapped[int] = mapped_column(Integer, default=0, server_default=sa.text("0"))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )

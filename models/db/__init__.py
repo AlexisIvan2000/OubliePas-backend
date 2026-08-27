@@ -1,5 +1,12 @@
 from models.db.base import Base
 from models.db.commitments_db import Commitment, CommitmentOccurrence
-from models.db.user_db import RefreshToken, User
+from models.db.user_db import RefreshToken, User, VerificationAttempt
 
-__all__ = ["Base", "User", "RefreshToken", "Commitment", "CommitmentOccurrence"]
+__all__ = [
+    "Base",
+    "User",
+    "RefreshToken",
+    "VerificationAttempt",
+    "Commitment",
+    "CommitmentOccurrence",
+]

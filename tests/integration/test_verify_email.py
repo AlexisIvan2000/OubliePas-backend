@@ -5,6 +5,17 @@ from core.config import REFRESH_COOKIE_NAME
 pytestmark = pytest.mark.integration
 
 
+def essais(db, email, kind):
+    rows = db(
+        "select a.count from verification_attempts a"
+        " join users u on u.id = a.user_id"
+        " where u.email = :e and a.kind = :k",
+        e=email,
+        k=kind,
+    )
+    return rows[0][0] if rows else 0
+
+
 def test_correct_code_returns_tokens(client, registered):
     response = client.post(
         "/v1/auth/verify-email",
@@ -21,10 +32,11 @@ def test_correct_code_returns_tokens(client, registered):
 def test_correct_code_marks_the_account_verified(client, registered, db):
     client.post("/v1/auth/verify-email", json={"email": registered["email"], "code": registered["code"]})
     rows = db(
-        "select is_verified, verification_code_hash, verification_attempts from users where email = :e",
+        "select is_verified, verification_code_hash from users where email = :e",
         e=registered["email"],
     )
-    assert rows == [(True, None, 0)]
+    assert rows == [(True, None)]
+    assert essais(db, registered["email"], "verification") == 0
 
 
 def test_wrong_code_is_rejected(client, registered):
@@ -36,8 +48,7 @@ def test_wrong_code_is_rejected(client, registered):
 def test_failed_attempts_are_persisted(client, registered, db):
     for expected in (1, 2, 3):
         client.post("/v1/auth/verify-email", json={"email": registered["email"], "code": "000000"})
-        rows = db("select verification_attempts from users where email = :e", e=registered["email"])
-        assert rows == [(expected,)]
+        assert essais(db, registered["email"], "verification") == expected
 
 
 def test_account_is_locked_after_five_failures(client, registered):

@@ -46,6 +46,7 @@ MESSAGES = {
         "greeting": "Bonjour {name},",
         "footer_no_reply": "Ne réponds pas directement à ce courriel.",
         "footer_why": "Tu reçois ce message parce que les rappels sont activés sur ton compte.",
+        "admin_why": "Ce message t'est envoyé par l'équipe OubliePas.",
         "unsubscribe": "Gérer mes rappels",
         "open_app": "Ouvrir OubliePas",
 
@@ -99,6 +100,7 @@ MESSAGES = {
         "greeting": "Hi {name},",
         "footer_no_reply": "Please do not reply directly to this email.",
         "footer_why": "You are getting this because reminders are switched on for your account.",
+        "admin_why": "This message was sent to you by the OubliePas team.",
         "unsubscribe": "Manage my reminders",
         "open_app": "Open OubliePas",
 

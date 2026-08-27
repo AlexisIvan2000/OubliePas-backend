@@ -120,10 +120,10 @@ class EmailPasswordAuth:
         if not db_user.is_active:
             raise AccountDisabled()
 
-        if db_user.verification_attempts >= MAX_VERIFICATION_ATTEMPTS:
+        if await self.repo.attempts(str(db_user.id), "verification") >= MAX_VERIFICATION_ATTEMPTS:
             raise TooManyVerificationAttempts()
 
-        await self.repo.increment_verification_attempts(str(db_user.id))
+        await self.repo.bump_attempts(str(db_user.id), "verification")
 
         expires_at = db_user.verification_code_expires_at
         if not expires_at or expires_at < datetime.now(timezone.utc):
@@ -134,6 +134,7 @@ class EmailPasswordAuth:
 
         user_id = str(db_user.id)
         updated = await self.repo.update_verification_status(user_id)
+        await self.repo.clear_attempts(user_id, "verification")
 
         return await self._issue_tokens(updated)
 

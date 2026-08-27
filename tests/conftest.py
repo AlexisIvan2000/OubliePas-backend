@@ -90,8 +90,8 @@ def mailbox(monkeypatch):
         sent.append({"kind": "email_change", "to": to, "code": code, "locale": locale})
         return {"id": "test"}
 
-    async def capture_admin(self, to, subject, body_text):
-        sent.append({"kind": "admin", "to": to, "subject": subject})
+    async def capture_admin(self, to, subject, body_text, locale="fr"):
+        sent.append({"kind": "admin", "to": to, "subject": subject, "locale": locale})
         return {"id": "test"}
 
     async def capture_reminder(self, to, *, first_name, items, currency, locale="fr"):

@@ -134,9 +134,9 @@ class GoogleAuth:
                         "is_verified": True,
                         "verification_code_hash": None,
                         "verification_code_expires_at": None,
-                        "verification_attempts": 0,
                     }
                 )
+                await self.repo.clear_attempts(str(db_user.id), "verification")
             if not db_user.avatar_url and claims.get("picture"):
                 updates["avatar_url"] = claims["picture"]
 

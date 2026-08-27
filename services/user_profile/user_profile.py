@@ -93,9 +93,12 @@ class UserProfile:
         if await Security.verify_password_async(db_user.password_hash, data.new_password):
             raise SamePasswordAsBefore()
 
-        await self.repo.update_user(user_id, {
-            "password_hash": await Security.hash_password_async(data.new_password),
-        })
+        # update_password et non update_user : il efface aussi le code de
+        # reinitialisation en cours. Sans cela, un code parti par courriel
+        # resterait valide un quart d'heure apres le changement.
+        await self.repo.update_password(
+            user_id, await Security.hash_password_async(data.new_password)
+        )
         await self.rt_repo.revoke_all_for_user(user_id)
 
         return {"message": "Password changed successfully"}
@@ -132,11 +135,11 @@ class UserProfile:
         if not db_user.is_active:
             raise AccountDisabled()
 
-        if db_user.verification_attempts >= MAX_VERIFICATION_ATTEMPTS:
+        user_id = str(db_user.id)
+        if await self.repo.attempts(user_id, "reset") >= MAX_VERIFICATION_ATTEMPTS:
             raise TooManyVerificationAttempts()
 
-        user_id = str(db_user.id)
-        await self.repo.increment_verification_attempts(user_id)
+        await self.repo.bump_attempts(user_id, "reset")
 
         expires_at = db_user.reset_code_expires_at
         if not expires_at or expires_at < datetime.now(timezone.utc):
@@ -151,6 +154,7 @@ class UserProfile:
         await self.repo.update_password(
             user_id, await Security.hash_password_async(data.new_password)
         )
+        await self.repo.clear_attempts(user_id, "reset")
         await self.rt_repo.revoke_all_for_user(user_id)
 
         return {"message": "Password reset successfully"}
@@ -189,10 +193,10 @@ class UserProfile:
         if not db_user.email_change_code_hash:
             raise NoEmailChangeCode()
 
-        if db_user.verification_attempts >= MAX_VERIFICATION_ATTEMPTS:
+        if await self.repo.attempts(user_id, "email_change") >= MAX_VERIFICATION_ATTEMPTS:
             raise TooManyVerificationAttempts()
 
-        await self.repo.increment_verification_attempts(user_id)
+        await self.repo.bump_attempts(user_id, "email_change")
 
         expires_at = db_user.email_change_code_expires_at
         if not expires_at or expires_at < datetime.now(timezone.utc):
@@ -210,8 +214,8 @@ class UserProfile:
             "pending_email": None,
             "email_change_code_hash": None,
             "email_change_code_expires_at": None,
-            "verification_attempts": 0,
         })
+        await self.repo.clear_attempts(user_id, "email_change")
 
         return {"message": "Email changed successfully"}
 

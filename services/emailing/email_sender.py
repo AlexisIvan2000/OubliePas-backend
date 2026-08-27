@@ -142,14 +142,17 @@ class EmailSender:
         subject, body, plain = _code_mail(messages.pick(locale), "change", code)
         return await self._send(self._params(to, subject, body, plain))
 
-    async def send_admin_email(self, to: str, subject: str, body_text: str) -> Dict:
+    async def send_admin_email(
+        self, to: str, subject: str, body_text: str, locale: str = messages.DEFAULT_LOCALE
+    ) -> Dict:
+        locale = messages.pick(locale)
         body = layout.page(
-            lang=messages.DEFAULT_LOCALE,
+            lang=locale,
             preheader=subject,
             blocks=[layout.heading(subject), _paragraphs(body_text)],
             footer_html=layout.footer(
-                "Ce message vous est envoyé par l'équipe OubliePas.",
-                "Ne pas répondre directement à cet email.",
+                messages.text(locale, "admin_why"),
+                messages.text(locale, "footer_no_reply"),
             ),
         )
         return await self._send(self._params(to, subject, body, body_text.strip()))

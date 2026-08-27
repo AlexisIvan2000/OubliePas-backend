@@ -2,6 +2,17 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
+
+def essais(db, email, kind):
+    rows = db(
+        "select a.count from verification_attempts a"
+        " join users u on u.id = a.user_id"
+        " where u.email = :e and a.kind = :k",
+        e=email,
+        k=kind,
+    )
+    return rows[0][0] if rows else 0
+
 NEW_PASSWORD = "NouveauPass1!"
 
 
@@ -199,9 +210,7 @@ class TestResetPassword:
 
     def test_wrong_code_increments_the_attempt_counter(self, client, verified, reset_code, db):
         client.post("/v1/auth/reset-password", json=self.payload(verified, "000000"))
-        assert db(
-            "select verification_attempts from users where email = :e", e=verified["email"]
-        ) == [(1,)]
+        assert essais(db, verified["email"], "reset") == 1
 
     def test_locks_after_five_failures(self, client, verified, reset_code):
         for _ in range(5):
