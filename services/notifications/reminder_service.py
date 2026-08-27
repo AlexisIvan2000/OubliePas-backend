@@ -108,6 +108,9 @@ class ReminderService:
                 await self.repo.mark_reminders_sent(covered, kind=NOTICE)
             await self.repo.session.commit()
             emailed.add(user_id)
+            # Un compte peut recevoir les trois familles dans le meme passage :
+            # 'users' ne dit donc pas ce que le quota Resend a reellement paye.
+            report["emails_sent"] += 1
             report[counter] += len(rows)
 
     async def _open_actions(self, reference: date) -> list[tuple]:
@@ -120,8 +123,13 @@ class ReminderService:
 
     async def send_due(self, *, on_date: date | None = None) -> dict:
         reference = on_date or today_utc()
+        # emails_sent est un plancher, pas la facture : le quota Resend compte
+        # aussi les transactionnels (verification, mot de passe, changement
+        # d'adresse), qui ne passent pas par ici. Le tableau de bord Resend fait
+        # foi.
         report = {
             "users": 0,
+            "emails_sent": 0,
             "occurrences": 0,
             "overdue": 0,
             "actions": 0,

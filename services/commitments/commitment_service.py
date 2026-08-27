@@ -4,6 +4,7 @@ from typing import NamedTuple
 from decimal import Decimal
 
 from core.exceptions import (
+    CommitmentLimitReached,
     CommitmentNotFound,
     FuturePaymentDate,
     InvalidDateRange,
@@ -11,7 +12,9 @@ from core.exceptions import (
     OccurrenceNotFound,
 )
 from models.db.commitments_db import (
+    COUNTED_STATUSES,
     DEFAULT_REMINDER_DAYS,
+    MAX_COMMITMENTS_PER_TYPE,
     PURGE_AFTER_DAYS,
     Commitment,
     CommitmentOccurrence,
@@ -118,6 +121,7 @@ class CommitmentService:
         *,
         default_reminder_days: int = DEFAULT_REMINDER_DAYS,
     ) -> CommitmentResponse:
+        await self._guard_limit(user_id, payload.type)
         today = today_utc()
         fields = payload.model_dump()
         if fields["reminder_days_before"] is None:
@@ -126,6 +130,25 @@ class CommitmentService:
         await self.generator.sync(commitment, today=today)
         due = await self.repo.due_dates(user_id, today)
         return self._commitment_response(commitment, due.get(commitment.id))
+
+    async def _guard_limit(self, user_id: str, commitment_type: str) -> None:
+        tracked = await self.repo.count_commitments(
+            user_id, statuses=COUNTED_STATUSES, commitment_type=commitment_type
+        )
+        if tracked >= MAX_COMMITMENTS_PER_TYPE:
+            raise CommitmentLimitReached(commitment_type, MAX_COMMITMENTS_PER_TYPE)
+
+    async def _guard_entry(self, user_id: str, commitment, changes: dict) -> None:
+        # Desarchiver et changer de type font entrer une ligne dans la population
+        # comptee sans passer par la creation : sans cette garde, le plafond ne
+        # tiendrait que le chemin normal.
+        target_type = changes.get("type", commitment.type)
+        target_status = changes.get("status", commitment.status)
+        if target_status not in COUNTED_STATUSES:
+            return
+        if commitment.status in COUNTED_STATUSES and commitment.type == target_type:
+            return
+        await self._guard_limit(user_id, target_type)
 
     async def list_commitments(
         self,
@@ -169,6 +192,8 @@ class CommitmentService:
         trial_ends_on = changes.get("trial_ends_on", commitment.trial_ends_on)
         if trial_ends_on is not None and trial_ends_on > starts_on:
             raise InvalidDateRange("The trial must end on or before the first due date")
+
+        await self._guard_entry(user_id, commitment, changes)
 
         today = today_utc()
         updated = await self.repo.update(commitment_id, user_id, changes)
@@ -295,7 +320,7 @@ class CommitmentService:
             paid_total=money(by_status.get("paid", Decimal("0"))),
             pending_total=money(by_status.get("pending", Decimal("0"))),
             late_count=await self.repo.count_late(user_id, today),
-            active_count=await self.repo.count_commitments(user_id, status="active"),
+            active_count=await self.repo.count_commitments(user_id, statuses=("active",)),
             upcoming_days=UPCOMING_DAYS,
             upcoming_total=upcoming_total,
             upcoming=[self._occurrence_response(row, today) for row in upcoming],

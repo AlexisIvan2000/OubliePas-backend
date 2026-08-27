@@ -37,6 +37,12 @@ MIN_TRIAL_NOTICE_DAYS = 3
 PURGE_AFTER_DAYS = 30
 MAX_CANCELLATION_NOTICE_DAYS = 60
 
+# Plafond du service gratuit, pas un palier produit : il borne ce qu'un compte
+# suit a la fois, jamais son historique. Les archives et la corbeille en sont
+# exclues, et la valeur monte d'une ligne le jour ou elle serre.
+MAX_COMMITMENTS_PER_TYPE = 25
+COUNTED_STATUSES = ("active", "paused")
+
 
 def _in_clause(column: str, values: tuple[str, ...]) -> str:
     return f"{column} IN ({', '.join(repr(value) for value in values)})"

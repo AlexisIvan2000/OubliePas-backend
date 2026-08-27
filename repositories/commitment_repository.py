@@ -353,13 +353,21 @@ class CommitmentRepository:
         result = await self.session.execute(query)
         return result.scalar_one()
 
-    async def count_commitments(self, user_id: str, *, status: str | None = None) -> int:
+    async def count_commitments(
+        self,
+        user_id: str,
+        *,
+        statuses: tuple[str, ...] | None = None,
+        commitment_type: str | None = None,
+    ) -> int:
         query = select(func.count()).select_from(Commitment).where(
             Commitment.user_id == user_id,
             Commitment.deleted_at.is_(None),
         )
-        if status is not None:
-            query = query.where(Commitment.status == status)
+        if statuses is not None:
+            query = query.where(Commitment.status.in_(statuses))
+        if commitment_type is not None:
+            query = query.where(Commitment.type == commitment_type)
         result = await self.session.execute(query)
         return result.scalar_one()
 
