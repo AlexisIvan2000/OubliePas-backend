@@ -6,6 +6,9 @@ from fastapi import APIRouter, Query, Request
 from api.dependencies import CommitmentServiceDep, CurrentUserDep
 from core.rate_limit import READ_LIMIT, limiter
 from models.schemas.commitment_schema import (
+    BatchIdsRequest,
+    BatchStatusRequest,
+    BatchStatusResult,
     CommitmentCreate,
     CommitmentResponse,
     CommitmentStatus,
@@ -117,6 +120,28 @@ async def delete_all_commitments(
     status: CommitmentStatus | None = Query(default=None),
 ):
     return await service.delete_all(str(user.id), commitment_type=type, status=status)
+
+
+@router.patch("/batch-status", response_model=BatchStatusResult)
+@limiter.limit("30/minute")
+async def set_status_many(
+    request: Request,
+    payload: BatchStatusRequest,
+    user: CurrentUserDep,
+    service: CommitmentServiceDep,
+):
+    return await service.set_status_many(str(user.id), list(payload.ids), payload.status)
+
+
+@router.post("/batch-delete", response_model=DeletedCommitments)
+@limiter.limit("30/minute")
+async def delete_many_commitments(
+    request: Request,
+    payload: BatchIdsRequest,
+    user: CurrentUserDep,
+    service: CommitmentServiceDep,
+):
+    return await service.delete_many(str(user.id), list(payload.ids))
 
 
 @router.post("/restore", response_model=RestoredCount)

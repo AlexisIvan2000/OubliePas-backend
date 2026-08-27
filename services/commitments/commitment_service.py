@@ -22,6 +22,7 @@ from models.db.commitments_db import (
 from models.schemas.commitment_schema import (
     MAX_UPCOMING,
     UPCOMING_DAYS,
+    BatchStatusResult,
     CategoryTotal,
     CommitmentCreate,
     CommitmentResponse,
@@ -204,6 +205,31 @@ class CommitmentService:
 
         due = await self.repo.due_dates(user_id, today)
         return self._commitment_response(updated, due.get(updated.id))
+
+    async def set_status_many(self, user_id: str, ids: list, status: str) -> BatchStatusResult:
+        # Une boucle sur update() plutot qu'un UPDATE unique : le statut fait
+        # partie des champs qui replanifient, et seule cette voie passe par
+        # generator.resync. Sans elle, une pause par lot laisserait les
+        # echeances sur le calendrier alors que la meme pause ligne par ligne
+        # les retire. L'ordre est celui du client, donc celui de l'ecran : on
+        # peut expliquer lesquelles sont passees.
+        changed, blocked = [], []
+        for commitment_id in ids:
+            commitment = await self.repo.get_by_id(commitment_id, user_id)
+            if commitment is None or commitment.status == status:
+                continue
+            try:
+                await self.update(user_id, commitment_id, CommitmentUpdate(status=status))
+            except CommitmentLimitReached:
+                blocked.append(str(commitment_id))
+                continue
+            changed.append(str(commitment_id))
+
+        return BatchStatusResult(changed=changed, blocked=blocked)
+
+    async def delete_many(self, user_id: str, ids: list) -> dict:
+        removed = await self.repo.delete_many(user_id, ids)
+        return {"deleted": len(removed), "ids": [str(one) for one in removed]}
 
     async def delete(self, user_id: str, commitment_id) -> dict:
         await self._owned(user_id, commitment_id)

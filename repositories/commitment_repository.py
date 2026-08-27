@@ -132,6 +132,11 @@ class CommitmentRepository:
             query = query.where(Commitment.status == status)
         return await self._soft_delete(query)
 
+    async def delete_many(self, user_id: str, ids: list) -> list[uuid.UUID]:
+        if not ids:
+            return []
+        return await self._soft_delete(self._live(user_id).where(Commitment.id.in_(ids)))
+
     async def _soft_delete(self, query) -> list[uuid.UUID]:
         rows = (await self.session.execute(query)).scalars().all()
         stamp = datetime.now(timezone.utc)

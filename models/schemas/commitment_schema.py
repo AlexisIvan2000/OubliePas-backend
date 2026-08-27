@@ -21,6 +21,8 @@ MAX_AMOUNT = Decimal("99999999.99")
 MAX_NOTES_LENGTH = 1000
 UPCOMING_DAYS = 14
 MAX_UPCOMING = 8
+# Une selection tient dans un ecran : au-dela, c'est un script, pas un geste.
+MAX_BATCH_IDS = 200
 
 
 def _clean(value: str) -> str:
@@ -153,6 +155,19 @@ class DeletedCommitments(BaseModel):
 
 class RestoreRequest(BaseModel):
     ids: list[UUID] = Field(min_length=1, max_length=500)
+
+
+class BatchIdsRequest(BaseModel):
+    ids: list[UUID] = Field(min_length=1, max_length=MAX_BATCH_IDS)
+
+
+class BatchStatusRequest(BatchIdsRequest):
+    status: CommitmentStatus
+
+
+class BatchStatusResult(BaseModel):
+    changed: list[str]
+    blocked: list[str]
 
 
 class RestoredCount(BaseModel):
