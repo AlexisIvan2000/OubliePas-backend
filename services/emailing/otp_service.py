@@ -3,6 +3,7 @@ from core.exceptions import TooManyCodeRequests
 from core.security import Security
 from repositories.auth_repository import AuthRepository
 from services.emailing.email_sender import EmailSender
+from services.emailing.messages import DEFAULT_LOCALE
 
 MAX_RESEND_PER_HOUR = 5
 OTP_EXPIRY_MINUTES = 15
@@ -13,7 +14,9 @@ class OtpService:
         self.repo = auth_repo
         self.email_sender = EmailSender()
 
-    async def send_verification_otp(self, email: str, user_id: str, db_user=None):
+    async def send_verification_otp(
+        self, email: str, user_id: str, db_user=None, locale: str | None = None
+    ):
         if db_user:
             self._check_resend_rate_limit(db_user)
 
@@ -32,7 +35,9 @@ class OtpService:
             "code_resend_count": new_resend_count,
         })
         
-        await self.email_sender.send_verification_email(email, code=otp_code)
+        await self.email_sender.send_verification_email(
+            email, code=otp_code, locale=locale or self._locale(db_user)
+        )
 
     async def send_reset_otp(self, email: str, db_user=None):
         if db_user:
@@ -46,7 +51,9 @@ class OtpService:
         new_resend_count = self._compute_resend_count(db_user, now) if db_user else 1
 
         await self.repo.save_reset_code(email, code_hash, expires_at, now, new_resend_count)
-        await self.email_sender.send_reset_password_email(email, code=otp_code)
+        await self.email_sender.send_reset_password_email(
+            email, code=otp_code, locale=self._locale(db_user)
+        )
 
     async def send_email_change_otp(self, pending_email: str, user_id: str, db_user=None):
         if db_user:
@@ -66,7 +73,13 @@ class OtpService:
             "last_code_sent_at": now,
             "code_resend_count": new_resend_count,
         })
-        await self.email_sender.send_email_change_email(pending_email, code=otp_code)
+        await self.email_sender.send_email_change_email(
+            pending_email, code=otp_code, locale=self._locale(db_user)
+        )
+
+    @staticmethod
+    def _locale(db_user) -> str:
+        return getattr(db_user, "locale", None) or DEFAULT_LOCALE
 
     @staticmethod
     def _check_resend_rate_limit(db_user):

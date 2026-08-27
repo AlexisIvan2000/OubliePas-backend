@@ -55,7 +55,7 @@ class EmailPasswordAuth:
             "currency": user.currency,
             "locale": user.locale,
         })
-        await self.otp_svc.send_verification_otp(email, str(new_user.id))
+        await self.otp_svc.send_verification_otp(email, str(new_user.id), locale=user.locale)
 
         return {"message": "Account created. Please check your email for the verification code."}
 

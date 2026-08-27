@@ -78,16 +78,16 @@ def rate_limit_on():
 def mailbox(monkeypatch):
     sent = []
 
-    async def capture_verification(self, to, code):
-        sent.append({"kind": "verification", "to": to, "code": code})
+    async def capture_verification(self, to, code, locale="fr"):
+        sent.append({"kind": "verification", "to": to, "code": code, "locale": locale})
         return {"id": "test"}
 
-    async def capture_reset(self, to, code):
-        sent.append({"kind": "reset", "to": to, "code": code})
+    async def capture_reset(self, to, code, locale="fr"):
+        sent.append({"kind": "reset", "to": to, "code": code, "locale": locale})
         return {"id": "test"}
 
-    async def capture_change(self, to, code):
-        sent.append({"kind": "email_change", "to": to, "code": code})
+    async def capture_change(self, to, code, locale="fr"):
+        sent.append({"kind": "email_change", "to": to, "code": code, "locale": locale})
         return {"id": "test"}
 
     async def capture_admin(self, to, subject, body_text):
