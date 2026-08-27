@@ -4,7 +4,7 @@ from api.dependencies import CurrentUserDep, EmailPasswordAuthDep, GoogleAuthDep
 from api.responses import user_response
 from core.cookies import clear_refresh_cookie, issue_session, read_refresh_cookie
 from core.exceptions import GoogleAuthUnavailable, InvalidRefreshToken
-from core.rate_limit import READ_LIMIT, ip_key, limiter
+from core.rate_limit import EMAIL_LIMIT, READ_LIMIT, ip_key, limiter
 from models.schemas.auth_schema import (
     GoogleAuthRequest,
     GoogleStartRequest,
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
-@limiter.limit("5/hour", key_func=ip_key)
+@limiter.limit(EMAIL_LIMIT, key_func=ip_key)
 async def register(request: Request, payload: UserCreate, service: EmailPasswordAuthDep):
     return await service.register_user(payload)
 
@@ -72,7 +72,7 @@ async def verify_email(
 
 
 @router.post("/resend-verification", response_model=MessageResponse)
-@limiter.limit("5/hour", key_func=ip_key)
+@limiter.limit(EMAIL_LIMIT, key_func=ip_key)
 async def resend_verification(
     request: Request, payload: ResendVerificationRequest, service: EmailPasswordAuthDep
 ):
@@ -80,7 +80,7 @@ async def resend_verification(
 
 
 @router.post("/forgot-password", response_model=MessageResponse)
-@limiter.limit("5/hour", key_func=ip_key)
+@limiter.limit(EMAIL_LIMIT, key_func=ip_key)
 async def forgot_password(request: Request, payload: ForgotPassword, service: UserProfileDep):
     return await service.forgot_password(payload)
 

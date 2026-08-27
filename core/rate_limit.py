@@ -10,6 +10,12 @@ FALLBACK_IP = "127.0.0.1"
 # que dix connexions.
 READ_LIMIT = "120/minute"
 
+# Une paire plutot qu'un seul plafond : la borne courte arrete le script, la
+# borne longue borne la facture Resend. Un plafond horaire seul punit les IP
+# partagees (NAT d'entreprise, CGNAT mobile), un plafond minute seul laisse
+# passer trois cents comptes et trois cents mails par heure.
+EMAIL_LIMIT = "5/minute;20/hour"
+
 
 def client_ip(request: Request) -> str:
     if TRUSTED_PROXY_COUNT > 0:

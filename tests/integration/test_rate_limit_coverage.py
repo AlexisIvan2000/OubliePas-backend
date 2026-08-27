@@ -1,7 +1,9 @@
 import pytest
 
 from app import app
-from core.rate_limit import READ_LIMIT, limiter
+from limits import parse_many
+
+from core.rate_limit import EMAIL_LIMIT, READ_LIMIT, limiter
 
 pytestmark = pytest.mark.integration
 
@@ -101,6 +103,76 @@ class TestReadLimit:
 
         assert client.get("/v1/auth/me", headers=auth(first)).status_code == 429
         assert client.get("/v1/auth/me", headers=auth(other_token)).status_code == 200
+
+
+MAILERS = [
+    "api.v1.client.auth.register",
+    "api.v1.client.auth.resend_verification",
+    "api.v1.client.auth.forgot_password",
+]
+
+BOUNDS = sorted(parse_many(EMAIL_LIMIT), key=lambda item: item.GRANULARITY.seconds)
+SHORT, LONG = BOUNDS[0], BOUNDS[-1]
+
+FORGOT = "/v1/auth/forgot-password"
+UNKNOWN = {"email": "personne@example.com"}
+
+
+def roll_the_short_window():
+    # Attendre soixante secondes dans la suite n'est pas une option : on vide le
+    # compteur de la borne courte a la main, celui de la borne longue continue
+    # de courir. C'est le seul moyen d'atteindre la seconde borne.
+    storage = limiter._storage
+    for key in [key for key in storage.storage if key.endswith("minute")]:
+        storage.storage.pop(key, None)
+        storage.expirations.pop(key, None)
+
+
+class TestEmailLimit:
+    def test_the_limit_is_a_pair_of_bounds(self):
+        assert len(BOUNDS) == 2
+        assert SHORT.GRANULARITY.seconds < LONG.GRANULARITY.seconds
+        assert SHORT.amount < LONG.amount
+
+    def test_the_pair_is_declared_on_every_route_that_sends_a_mail(self):
+        attendu = {str(SHORT), str(LONG)}
+
+        for name in MAILERS:
+            declare = {str(item.limit) for item in limiter._route_limits[name]}
+            assert declare == attendu, name
+
+    def test_the_short_bound_refuses_the_next_one_in_the_same_minute(self, client, rate_limit_on):
+        codes = [client.post(FORGOT, json=UNKNOWN).status_code for _ in range(SHORT.amount + 1)]
+
+        assert codes == [200] * SHORT.amount + [429]
+
+    def test_a_shared_address_gets_a_second_round_at_the_next_minute(self, client, rate_limit_on):
+        # C'est la raison du changement : sous un plafond horaire unique, la
+        # sixieme tentative d'un NAT partage restait refusee jusqu'a l'heure
+        # suivante.
+        for _ in range(SHORT.amount):
+            client.post(FORGOT, json=UNKNOWN)
+        assert client.post(FORGOT, json=UNKNOWN).status_code == 429
+
+        roll_the_short_window()
+
+        assert client.post(FORGOT, json=UNKNOWN).status_code == 200
+
+    def test_the_long_bound_still_closes_the_hour(self, client, rate_limit_on):
+        codes = []
+        for _ in range(LONG.amount + 1):
+            codes.append(client.post(FORGOT, json=UNKNOWN).status_code)
+            if len(codes) % SHORT.amount == 0:
+                roll_the_short_window()
+
+        assert codes[: LONG.amount] == [200] * LONG.amount
+        assert codes[-1] == 429
+
+    def test_the_refusal_keeps_the_shared_envelope(self, client, rate_limit_on):
+        for _ in range(SHORT.amount + 1):
+            response = client.post(FORGOT, json=UNKNOWN)
+
+        assert response.json()["detail"]["code"] == "RATE_LIMIT_EXCEEDED"
 
 
 @pytest.fixture
