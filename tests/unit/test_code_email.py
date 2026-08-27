@@ -56,7 +56,7 @@ def reminder():
 
 class TestLocale:
     def test_the_verification_subject_follows_the_account_language(self):
-        assert code_mail(locale="fr")["subject"] == "Vérification de ton adresse"
+        assert code_mail(locale="fr")["subject"] == "Vérification de votre adresse"
         assert code_mail(locale="en")["subject"] == "Verify your email address"
 
     def test_the_reset_subject_follows_it_too(self):
@@ -91,7 +91,7 @@ class TestBody:
         # L'apostrophe ressort echappee : on relit ce que le lecteur verra.
         lisible = unescape(code_mail()["html"])
 
-        assert "Si tu n'as pas créé de compte, ignore ce message." in lisible
+        assert "Si vous n'avez pas créé de compte, ignorez ce message." in lisible
 
 
 class TestEnvelope:
