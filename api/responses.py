@@ -1,4 +1,5 @@
 from models.db import User
+from models.db.commitments_db import MAX_COMMITMENTS_PER_TYPE
 from models.schemas.auth_schema import UserResponse
 from services.storage.object_storage import public_avatar_url
 
@@ -21,4 +22,5 @@ def user_response(user: User) -> UserResponse:
         reminder_action_enabled=user.reminder_action_enabled,
         default_reminder_days=user.default_reminder_days,
         locale=user.locale,
+        commitment_limit=MAX_COMMITMENTS_PER_TYPE,
     )

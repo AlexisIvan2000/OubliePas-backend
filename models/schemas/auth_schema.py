@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from core.validators import normalize_currency
+from models.db.commitments_db import MAX_COMMITMENTS_PER_TYPE
 from models.db.user_db import DEFAULT_LOCALE
 
 DEFAULT_CURRENCY = "CAD"
@@ -88,3 +89,4 @@ class UserResponse(BaseModel):
     reminder_action_enabled: bool = True
     default_reminder_days: int = 3
     locale: str = DEFAULT_LOCALE
+    commitment_limit: int = MAX_COMMITMENTS_PER_TYPE

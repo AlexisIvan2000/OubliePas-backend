@@ -187,6 +187,17 @@ class TestRestoring:
         assert len(live(client, token)) == LIMIT + 1
 
 
+class TestTheFrontKnowsTheCeiling:
+    def test_the_account_carries_it(self, client, token):
+        # L'indicateur des pages abonnements et factures lit ce champ : sans
+        # lui, le front devrait ecrire le chiffre de son cote et mentir le jour
+        # ou il change ici.
+        response = client.get("/v1/auth/me", headers=auth(token))
+
+        assert response.status_code == 200
+        assert response.json()["commitment_limit"] == LIMIT
+
+
 @pytest.fixture
 def other_token(client, mailbox):
     account = {
