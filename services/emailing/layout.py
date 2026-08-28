@@ -1,11 +1,4 @@
 import html
-import logging
-
-from core.config import LOGO_URL
-
-logger = logging.getLogger(__name__)
-
-EXTERNAL_URL_PREFIXES = ("http://", "https://")
 
 BRAND = "OubliePas"
 FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
@@ -116,26 +109,12 @@ def footer(note: str, no_reply: str, link=None) -> str:
     )
 
 
-def _usable_logo() -> bool:
-    # Une adresse relative ne veut rien dire dans une boite de reception : le
-    # client de messagerie n'a aucune page d'ou la resoudre, et l'image part
-    # cassee. Une cle de bucket vaut donc une absence, pas un en-tete abime.
-    return bool(LOGO_URL) and LOGO_URL.startswith(EXTERNAL_URL_PREFIXES)
-
-
+# L'en-tete ne porte que le nom : une image y serait bloquee par defaut dans la
+# plupart des boites de reception, et il ne resterait de toute facon que ce mot.
 def _brand() -> str:
-    mark = (
-        f'<td style="padding-right:10px;"><img src="{escape(LOGO_URL)}" width="36" height="36"'
-        f' alt="" style="display:block;width:36px;height:36px;border-radius:10px;" /></td>'
-        if _usable_logo()
-        else ""
-    )
     return (
-        '<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>'
-        f"{mark}"
-        f'<td style="font-family:{FONT};font-size:19px;font-weight:600;letter-spacing:-0.02em;'
-        f'color:{TEXT};">{BRAND}</td>'
-        "</tr></table>"
+        f'<div style="font-family:{FONT};font-size:19px;font-weight:600;'
+        f'letter-spacing:-0.02em;color:{TEXT};">{BRAND}</div>'
     )
 
 
@@ -162,9 +141,3 @@ def page(*, lang: str, preheader: str, blocks, footer_html: str) -> str:
 </table>
 </body>
 </html>"""
-
-
-if LOGO_URL and not LOGO_URL.startswith(EXTERNAL_URL_PREFIXES):
-    logger.warning(
-        "LOGO_URL ignoree : une adresse absolue est attendue, pas une cle de bucket"
-    )

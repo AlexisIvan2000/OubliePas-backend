@@ -6,7 +6,6 @@ from html import unescape
 import pytest
 
 from core.config import RESEND_FROM_EMAIL, RESEND_FROM_EMAIL_REMINDER
-from services.emailing import layout
 from services.emailing.email_sender import EmailSender
 
 # La fixture mailbox remplace ces methodes pour toute la suite : on garde une
@@ -114,33 +113,17 @@ class TestEnvelope:
 
 
 class TestBrand:
-    def test_the_logo_sits_next_to_the_name(self, monkeypatch):
-        monkeypatch.setattr(layout, "LOGO_URL", "https://cdn.example.com/logo.png")
+    def test_the_header_names_the_app(self):
         header = code_mail()["html"]
 
-        # Le nom figure aussi dans <title> : on ne compare l'ordre qu'a
-        # l'interieur du corps, la ou le lecteur voit l'en-tete.
-        corps = header[header.index("<body") :]
-
-        assert '<img src="https://cdn.example.com/logo.png"' in corps
-        assert corps.index("logo.png") < corps.index("OubliePas")
-
-    def test_a_bucket_key_is_not_turned_into_an_image(self, monkeypatch):
-        # Le piege reel : la variable a recu la cle de l'objet au lieu de son
-        # adresse publique. Une balise relative part cassee, sans meme un texte
-        # de remplacement ; l'en-tete se replie plutot sur le nom.
-        monkeypatch.setattr(layout, "LOGO_URL", "oubliepas/logo/logo.png")
-        header = code_mail()["html"]
-
-        assert "<img" not in header
         assert "OubliePas" in header
 
-    def test_the_header_still_names_the_app_without_a_logo(self, monkeypatch):
-        monkeypatch.setattr(layout, "LOGO_URL", None)
-        header = code_mail()["html"]
-
-        assert "<img" not in header
-        assert "OubliePas" in header
+    def test_no_mail_carries_an_image(self):
+        # Aucune image dans les courriels : la plupart des boites les bloquent
+        # par defaut, et une adresse distante est une dependance de plus qui
+        # peut mourir apres l'envoi.
+        for mail in (code_mail(), code_mail("reset"), code_mail("change"), reminder()):
+            assert "<img" not in mail["html"]
 
     def test_the_palette_is_the_one_of_the_app(self):
         body = code_mail()["html"]
