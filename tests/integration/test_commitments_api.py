@@ -1108,6 +1108,15 @@ class TestDeletedStayHidden:
         create(client, token, netflix())
         return client.delete("/v1/commitments", headers=auth(token)).json()
 
+    def test_it_leaves_the_list(self, client, token):
+        create(client, token, netflix())
+        create(client, token, loyer())
+        client.delete("/v1/commitments", params={"type": "subscription"}, headers=auth(token))
+
+        rows = client.get("/v1/commitments", headers=auth(token)).json()
+
+        assert [item["title"] for item in rows] == ["Loyer"]
+
     def test_it_leaves_the_summary(self, client, token):
         self._deleted(client, token)
 
