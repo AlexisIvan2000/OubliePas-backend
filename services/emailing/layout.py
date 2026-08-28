@@ -1,6 +1,11 @@
 import html
+import logging
 
 from core.config import LOGO_URL
+
+logger = logging.getLogger(__name__)
+
+EXTERNAL_URL_PREFIXES = ("http://", "https://")
 
 BRAND = "OubliePas"
 FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
@@ -111,11 +116,18 @@ def footer(note: str, no_reply: str, link=None) -> str:
     )
 
 
+def _usable_logo() -> bool:
+    # Une adresse relative ne veut rien dire dans une boite de reception : le
+    # client de messagerie n'a aucune page d'ou la resoudre, et l'image part
+    # cassee. Une cle de bucket vaut donc une absence, pas un en-tete abime.
+    return bool(LOGO_URL) and LOGO_URL.startswith(EXTERNAL_URL_PREFIXES)
+
+
 def _brand() -> str:
     mark = (
         f'<td style="padding-right:10px;"><img src="{escape(LOGO_URL)}" width="36" height="36"'
         f' alt="" style="display:block;width:36px;height:36px;border-radius:10px;" /></td>'
-        if LOGO_URL
+        if _usable_logo()
         else ""
     )
     return (
@@ -150,3 +162,9 @@ def page(*, lang: str, preheader: str, blocks, footer_html: str) -> str:
 </table>
 </body>
 </html>"""
+
+
+if LOGO_URL and not LOGO_URL.startswith(EXTERNAL_URL_PREFIXES):
+    logger.warning(
+        "LOGO_URL ignoree : une adresse absolue est attendue, pas une cle de bucket"
+    )

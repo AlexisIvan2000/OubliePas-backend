@@ -125,6 +125,16 @@ class TestBrand:
         assert '<img src="https://cdn.example.com/logo.png"' in corps
         assert corps.index("logo.png") < corps.index("OubliePas")
 
+    def test_a_bucket_key_is_not_turned_into_an_image(self, monkeypatch):
+        # Le piege reel : la variable a recu la cle de l'objet au lieu de son
+        # adresse publique. Une balise relative part cassee, sans meme un texte
+        # de remplacement ; l'en-tete se replie plutot sur le nom.
+        monkeypatch.setattr(layout, "LOGO_URL", "oubliepas/logo/logo.png")
+        header = code_mail()["html"]
+
+        assert "<img" not in header
+        assert "OubliePas" in header
+
     def test_the_header_still_names_the_app_without_a_logo(self, monkeypatch):
         monkeypatch.setattr(layout, "LOGO_URL", None)
         header = code_mail()["html"]
