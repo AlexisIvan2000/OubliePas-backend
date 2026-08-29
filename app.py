@@ -16,11 +16,13 @@ from api.v1.router import api_router
 from core.config import CORS_ORIGIN_REGEX, CORS_ORIGINS, DEBUG, TRUSTED_PROXY_COUNT
 from core.database import dispose_engine
 from core.exceptions import AppException
+from core.migrations import run_migrations
 from core.rate_limit import client_ip, limiter
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await run_migrations()
     yield
     await dispose_engine()
 

@@ -65,6 +65,13 @@ async def run_async_migrations() -> None:
 
 
 def run_migrations_online() -> None:
+    # L'application passe sa propre connexion au demarrage : Alembic ne doit
+    # alors ni ouvrir un moteur ni demarrer une boucle, il en tourne deja une.
+    connection = config.attributes.get("connection")
+    if connection is not None:
+        do_run_migrations(connection)
+        return
+
     asyncio.run(run_async_migrations())
 
 

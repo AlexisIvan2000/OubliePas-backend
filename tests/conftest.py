@@ -20,8 +20,20 @@ import core.database as core_database
 
 core_database.AsyncSessionLocal = TestSessionLocal
 
+import app as app_module
 from app import app
 from core.rate_limit import limiter
+
+
+async def _skip_migrations() -> None:
+    return None
+
+
+# La suite batit son schema avec create_all sur DB_URL_TEST. Laisser le
+# demarrage jouer Alembic ferait deux choses fausses : migrer la base de
+# developpement, que conftest n'a pas remplacee, et poser des revisions sur un
+# schema deja construit autrement.
+app_module.run_migrations = _skip_migrations
 from models.db import Base
 from services.emailing.email_sender import EmailSender
 
