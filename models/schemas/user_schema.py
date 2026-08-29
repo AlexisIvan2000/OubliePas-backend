@@ -33,6 +33,7 @@ class UpdateProfile(BaseModel):
     last_name: str | None = Field(default=None, max_length=100)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     reminder_email_enabled: bool | None = None
+    reminder_push_enabled: bool | None = None
     reminder_notice_enabled: bool | None = None
     reminder_overdue_enabled: bool | None = None
     reminder_action_enabled: bool | None = None

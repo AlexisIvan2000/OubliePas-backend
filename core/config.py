@@ -104,6 +104,18 @@ RESEND_FROM_EMAIL_REMINDER = os.getenv("RESEND_FROM_EMAIL_REMINDER", "reminder@o
 # d'empecher le demarrage.
 OPERATOR_EMAIL = os.getenv("OPERATOR_EMAIL")
 
+# Les trois vont ensemble : une paire incomplete ne signe rien. Absentes, le
+# push se tait et le reste de l'application fonctionne — c'est un canal en plus,
+# jamais une condition de demarrage.
+VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY")
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY")
+VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", "mailto:rappels@oubliepas.com")
+
+
+def push_configured() -> bool:
+    return bool(VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY and VAPID_SUBJECT)
+
+
 API_S3 = os.getenv("API_S3")
 S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID")
 S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY")

@@ -10,6 +10,7 @@ from core.security import Security
 from models.db import User
 from repositories.auth_repository import AuthRepository
 from repositories.commitment_repository import CommitmentRepository
+from repositories.push_repository import PushRepository
 from repositories.refresh_token_repository import RefreshTokenRepository
 from services.authentication.email_password import EmailPasswordAuth
 from services.authentication.google_auth import GoogleAuth, GoogleTokenClient
@@ -78,6 +79,13 @@ def get_avatar_service(auth_repo: AuthRepoDep) -> AvatarService:
 
 
 AvatarServiceDep = Annotated[AvatarService, Depends(get_avatar_service)]
+
+
+def get_push_repository(session: SessionDep) -> PushRepository:
+    return PushRepository(session)
+
+
+PushRepoDep = Annotated[PushRepository, Depends(get_push_repository)]
 
 
 def get_commitment_repository(session: SessionDep) -> CommitmentRepository:

@@ -68,6 +68,12 @@ class User(Base):
     reminder_email_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=sa.text("true")
     )
+    # Distinct du courriel : couper les notifications ne doit pas couper les
+    # rappels, et le defaut est faux parce qu'un push exige une permission
+    # navigateur que personne n'a encore donnee.
+    reminder_push_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=sa.text("false")
+    )
     reminder_notice_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=sa.text("true")
     )
@@ -103,6 +109,9 @@ class User(Base):
     admin_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    push_subscriptions: Mapped[list["PushSubscription"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class RefreshToken(Base):
@@ -138,3 +147,27 @@ class VerificationAttempt(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+
+
+class PushSubscription(Base):
+    __tablename__ = "push_subscriptions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    # L'adresse d'envoi identifie l'abonnement a elle seule, et le navigateur la
+    # reconduit telle quelle : elle sert de cle d'upsert plutot qu'un couple
+    # (utilisateur, appareil) qu'aucun des deux cotes ne sait fabriquer.
+    endpoint: Mapped[str] = mapped_column(Text, unique=True)
+    p256dh: Mapped[str] = mapped_column(String(255))
+    auth: Mapped[str] = mapped_column(String(255))
+    user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    user: Mapped["User"] = relationship(back_populates="push_subscriptions")

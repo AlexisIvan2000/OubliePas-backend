@@ -84,6 +84,7 @@ class UserResponse(BaseModel):
     has_password: bool = False
     currency: str = DEFAULT_CURRENCY
     reminder_email_enabled: bool = True
+    reminder_push_enabled: bool = False
     reminder_notice_enabled: bool = True
     reminder_overdue_enabled: bool = True
     reminder_action_enabled: bool = True
