@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from models.db.commitments_db import (
+    DEFAULT_REMINDER_CHANNEL,
     MAX_CANCELLATION_NOTICE_DAYS,
     MAX_REMINDER_DAYS,
     OVERDUE_REMINDER_DAYS,
@@ -409,10 +410,11 @@ class CommitmentRepository:
         await self.session.flush()
         return occurrence
 
-    def _unreminded(self, kind: str, *, earliest: date, latest: date):
+    def _unreminded(self, kind: str, *, earliest: date, latest: date, channel: str):
         sent = select(OccurrenceReminder.id).where(
             OccurrenceReminder.occurrence_id == CommitmentOccurrence.id,
             OccurrenceReminder.kind == kind,
+            OccurrenceReminder.channel == channel,
         )
         return (
             select(CommitmentOccurrence, Commitment)
@@ -429,7 +431,7 @@ class CommitmentRepository:
             .order_by(CommitmentOccurrence.due_date)
         )
 
-    def _notice_window(self, on_date: date):
+    def _notice_window(self, on_date: date, channel: str = DEFAULT_REMINDER_CHANNEL):
         # La borne large sert l'index sur (due_date, status) ; la seconde applique
         # le delai propre a chaque engagement. Sans elle, 87 % des lignes remontees
         # etaient hydratees en objets puis jetees.
@@ -437,11 +439,14 @@ class CommitmentRepository:
             "notice",
             earliest=on_date,
             latest=on_date + timedelta(days=MAX_REMINDER_DAYS),
+            channel=channel,
         )
 
-    async def due_for_reminder(self, on_date: date) -> list[tuple[CommitmentOccurrence, Commitment]]:
+    async def due_for_reminder(
+        self, on_date: date, *, channel: str = DEFAULT_REMINDER_CHANNEL
+    ) -> list[tuple[CommitmentOccurrence, Commitment]]:
         result = await self.session.execute(
-            self._notice_window(on_date).where(
+            self._notice_window(on_date, channel).where(
                 CommitmentOccurrence.due_date
                 <= on_date + Commitment.reminder_days_before
             )
@@ -449,19 +454,20 @@ class CommitmentRepository:
         return list(result.all())
 
     async def overdue_for_reminder(
-        self, on_date: date
+        self, on_date: date, *, channel: str = DEFAULT_REMINDER_CHANNEL
     ) -> list[tuple[CommitmentOccurrence, Commitment]]:
         result = await self.session.execute(
             self._unreminded(
                 "overdue",
                 earliest=on_date - timedelta(days=OVERDUE_REMINDER_WINDOW_DAYS),
                 latest=on_date - timedelta(days=OVERDUE_REMINDER_DAYS),
+                channel=channel,
             )
         )
         return [(occurrence, commitment) for occurrence, commitment in result.all()]
 
     async def action_candidates(
-        self, on_date: date
+        self, on_date: date, *, channel: str = DEFAULT_REMINDER_CHANNEL
     ) -> list[tuple[CommitmentOccurrence, Commitment]]:
         result = await self.session.execute(
             self._unreminded(
@@ -469,6 +475,7 @@ class CommitmentRepository:
                 earliest=on_date,
                 latest=on_date
                 + timedelta(days=MAX_CANCELLATION_NOTICE_DAYS + MAX_REMINDER_DAYS),
+                channel=channel,
             ).where(
                 or_(
                     Commitment.trial_ends_on.is_not(None),
@@ -490,6 +497,8 @@ class CommitmentRepository:
         await self.session.flush()
         return result.rowcount
 
+    # L'effacement porte sur la famille entiere, tous canaux confondus : rouvrir
+    # une echeance doit rendre le rappel possible partout, pas sur un seul canal.
     async def clear_reminders(self, commitment_id: str, *, kind: str) -> int:
         pending = select(CommitmentOccurrence.id).where(
             CommitmentOccurrence.commitment_id == commitment_id,
@@ -509,6 +518,7 @@ class CommitmentRepository:
         occurrence_ids: list[uuid.UUID],
         *,
         kind: str,
+        channel: str = DEFAULT_REMINDER_CHANNEL,
         sent_at: datetime | None = None,
     ) -> int:
         if not occurrence_ids:
@@ -523,12 +533,13 @@ class CommitmentRepository:
                         "id": uuid.uuid4(),
                         "occurrence_id": occurrence_id,
                         "kind": kind,
+                        "channel": channel,
                         "sent_at": stamp,
                     }
                     for occurrence_id in occurrence_ids
                 ]
             )
-            .on_conflict_do_nothing(constraint="uq_reminder_occurrence_kind")
+            .on_conflict_do_nothing(constraint="uq_reminder_occurrence_kind_channel")
         )
         result = await self.session.execute(statement)
         await self.session.flush()

@@ -25,6 +25,10 @@ COMMITMENT_FREQUENCIES = ("weekly", "monthly", "quarterly", "yearly", "oneoff")
 COMMITMENT_STATUSES = ("active", "paused", "archived")
 OCCURRENCE_STATUSES = ("pending", "paid", "skipped")
 REMINDER_KINDS = ("notice", "overdue", "action_required")
+# Le journal est desormais tenu par canal : sans cette dimension, le courriel
+# tamponne la ligne et le push du meme rappel ne part jamais.
+REMINDER_CHANNELS = ("email", "push")
+DEFAULT_REMINDER_CHANNEL = "email"
 
 DEFAULT_CATEGORY = "other"
 DEFAULT_REMINDER_DAYS = 3
@@ -143,8 +147,13 @@ class CommitmentOccurrence(Base):
 class OccurrenceReminder(Base):
     __tablename__ = "occurrence_reminders"
     __table_args__ = (
-        UniqueConstraint("occurrence_id", "kind", name="uq_reminder_occurrence_kind"),
+        UniqueConstraint(
+            "occurrence_id", "kind", "channel", name="uq_reminder_occurrence_kind_channel"
+        ),
         CheckConstraint(_in_clause("kind", REMINDER_KINDS), name="reminders_kind_check"),
+        CheckConstraint(
+            _in_clause("channel", REMINDER_CHANNELS), name="reminders_channel_check"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -154,6 +163,9 @@ class OccurrenceReminder(Base):
         index=True,
     )
     kind: Mapped[str] = mapped_column(String(20))
+    channel: Mapped[str] = mapped_column(
+        String(10), server_default=DEFAULT_REMINDER_CHANNEL, default=DEFAULT_REMINDER_CHANNEL
+    )
     sent_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
