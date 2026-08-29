@@ -44,3 +44,5 @@ uploads/
 # Claude Code (reglages personnels, non partages)
 .claude/settings.local.json
 CLAUDE.md
+vapid_private.pem
+vapid_public.pem
