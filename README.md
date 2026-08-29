@@ -234,11 +234,19 @@ Alembic. After adding a column, run `alembic upgrade head` against the
 development database yourself, or the app raises `UndefinedColumnError` at
 runtime while every test passes.
 
-**`requirements.txt` is curated by hand.** It was a global `pip freeze` encoded
-in UTF-16 until the first deployment, 316 lines including Django, Flask,
-Streamlit, spaCy and PyQt6, and pip could not even read the file. It now lists
-the 21 packages the import graph actually needs. Add an entry only when
-something imports it, and keep the file UTF-8.
+**`requirements.txt` is curated by hand.** It was a global `pip freeze` until
+the first deployment: 316 lines including Django, Flask, Streamlit, spaCy,
+PyQt6 and `psycopg2`, whose source build needs `pg_config` and fails on a
+stock build image. It now lists the 21 packages the import graph actually
+needs, all of them available as Linux wheels for Python 3.12 and 3.13. Add an
+entry only when something imports it, pin it, and check it has a wheel:
+
+```bash
+pip download -r requirements.txt -d /tmp/wheels --only-binary=:all: --implementation cp --python-version 312 --platform manylinux_2_28_x86_64 --platform manylinux_2_17_x86_64 --platform any
+```
+
+An older platform tag alone (`manylinux2014_x86_64`) reports false failures:
+recent projects publish only `manylinux_2_28` wheels.
 
 **Domain constants live in `models/db/commitments_db.py`** and are imported by
 schemas, services and CHECK constraints alike. Add new ones there so the three

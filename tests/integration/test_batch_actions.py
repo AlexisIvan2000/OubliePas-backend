@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 
 from models.db.commitments_db import MAX_COMMITMENTS_PER_TYPE
@@ -150,13 +152,21 @@ class TestTheScheduleFollows:
 
     @staticmethod
     def occurrences(client, token, ids):
+        # La fenetre part d'aujourd'hui et dure un mois. Une borne posee sur un
+        # quantieme fixe passait avant le depart les jours 29, 30 et 31, et la
+        # route repondait alors une erreur de validation que la boucle prenait
+        # pour des lignes.
         today = today_utc()
-        rows = client.get(
+        response = client.get(
             "/v1/commitments/occurrences",
-            params={"start": today.isoformat(), "end": today.replace(day=28).isoformat()},
+            params={
+                "start": today.isoformat(),
+                "end": (today + timedelta(days=31)).isoformat(),
+            },
             headers=auth(token),
-        ).json()
-        return [row for row in rows if row["commitment_id"] in ids]
+        )
+        assert response.status_code == 200, response.json()
+        return [row for row in response.json() if row["commitment_id"] in ids]
 
 
 class TestBatchDelete:
