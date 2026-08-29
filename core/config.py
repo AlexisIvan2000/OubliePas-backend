@@ -29,6 +29,16 @@ def check_cors_policy(origins: list[str]) -> None:
         )
 
 
+# Le pilote asynchrone ne se devine pas depuis un URL "postgresql://", que
+# toutes les plateformes fournissent sous cette forme. La regle vit ici pour
+# qu'Alembic l'applique aussi : sans elle, un -x db_url colle depuis le tableau
+# de bord echoue sur une erreur de pilote qui affiche le mot de passe.
+def to_async_url(raw: str) -> str:
+    if raw.startswith("postgresql://"):
+        return raw.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return raw
+
+
 def _require(name: str) -> str:
     value = os.getenv(name)
     if not value:
@@ -50,10 +60,7 @@ if not _raw_db_url:
         "Set it before starting the app."
     )
 
-if _raw_db_url.startswith("postgresql://"):
-    DATABASE_URL = _raw_db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-else:
-    DATABASE_URL = _raw_db_url
+DATABASE_URL = to_async_url(_raw_db_url)
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")

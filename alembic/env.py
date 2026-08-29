@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
-from core.config import DATABASE_URL
+from core.config import DATABASE_URL, to_async_url
 from models.db import Base
 
 config = context.config
@@ -16,7 +16,11 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 _x = context.get_x_argument(as_dictionary=True)
-config.set_main_option("sqlalchemy.url", _x.get("db_url", DATABASE_URL))
+# set_main_option passe par configparser, qui interprete les % : un mot de passe
+# encode les perdrait en silence.
+config.set_main_option(
+    "sqlalchemy.url", to_async_url(_x.get("db_url", DATABASE_URL)).replace("%", "%%")
+)
 
 target_metadata = Base.metadata
 
