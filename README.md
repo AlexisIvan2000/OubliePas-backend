@@ -10,8 +10,9 @@ is about to close.
 
 ## Requirements
 
-- Python 3.13
-- PostgreSQL 14 or later, two databases: one for development, one for tests
+- Python 3.13, the version the suite runs on. Nothing pins it, so a deployment
+  platform will pick its own default unless you tell it otherwise
+- PostgreSQL, two databases: one for development, one for tests
 - A [Resend](https://resend.com) API key for outgoing mail
 - Optional: Redis for rate limiting, S3-compatible object storage for avatars
 
@@ -50,8 +51,13 @@ already knows it, so nothing is gained by publishing it in production.
 
 ```json
 {"date": "2026-08-28", "occurrences_generated": 12, "purged": 0,
- "reminders_purged": 3, "sent": 7, "emails_sent": 7, "failed": 0}
+ "reminders_purged": 3, "users": 5, "emails_sent": 7, "occurrences": 4,
+ "overdue": 2, "actions": 1, "skipped": 0, "failed": 0}
 ```
+
+`emails_sent` is a floor, not the bill: the Resend quota also counts
+transactional mail (verification, password reset, address change), which does
+not pass through this job. The Resend dashboard is the authority.
 
 There is no linter or formatter configured.
 
@@ -149,7 +155,7 @@ archive keeps its full history.
 
 Deleting sets `deleted_at`; the daily job purges after `PURGE_AFTER_DAYS` (30).
 Every read in `CommitmentRepository` goes through `_live()` or
-`_live_occurrences()`, which apply the `deleted_at IS NULL` guard. Fifteen
+`_live_occurrences()`, which apply the `deleted_at IS NULL` guard. Fourteen
 queries route through those two helpers precisely so the guard cannot be
 forgotten in one of them and leak a deleted amount back into a total.
 
@@ -165,9 +171,11 @@ constraint so each reminder is sent once:
 | `action_required` | a trial or cancellation-notice deadline is open |
 
 `ReminderService._dispatch` skips a user unless they are active, verified, have
-`reminder_email_enabled`, **and** have the per-family switch on. It commits
-after each user so a mid-run failure does not resend to those already emailed. A
-failed send is logged and left unmarked, so the next run retries it.
+`reminder_email_enabled`, **and** have the switch for that family on
+(`reminder_notice_enabled`, `reminder_overdue_enabled`,
+`reminder_action_enabled`). It commits after each user so a mid-run failure
+does not resend to those already emailed. A failed send is logged and left
+unmarked, so the next run retries it.
 
 `jobs/daily.py` runs purge, then generate, then send, guarded by a Postgres
 advisory lock so two workers cannot both fire. When a run sends more than
