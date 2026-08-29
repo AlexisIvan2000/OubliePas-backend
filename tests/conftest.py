@@ -155,6 +155,30 @@ def mailbox(monkeypatch):
     return sent
 
 
+@pytest.fixture
+def pushbox(monkeypatch):
+    # Calque du mailbox : rien ne sort sur le reseau, et le contenu reste
+    # inspectable. Le resultat par defaut se surcharge par pushbox.result, ce
+    # qui permet de jouer une adresse morte sans serveur de push.
+    from services.pushing.push_sender import PushSender
+
+    sent = []
+
+    async def capture(self, subscription, *, title, body, url):
+        sent.append(
+            {
+                "endpoint": subscription.endpoint,
+                "title": title,
+                "body": body,
+                "url": url,
+            }
+        )
+        return getattr(sent, "result", "sent")
+
+    monkeypatch.setattr(PushSender, "send", capture)
+    return sent
+
+
 @pytest.fixture(scope="session")
 def client(_schema):
     from fastapi.testclient import TestClient

@@ -14,9 +14,11 @@ from models.db.commitments_db import (
 )
 from repositories.auth_repository import AuthRepository
 from repositories.commitment_repository import CommitmentRepository
+from repositories.push_repository import PushRepository
 from services.commitments.occurrence_generator import OccurrenceGenerator, today_utc
 from services.emailing.email_sender import EmailSender
 from services.notifications.reminder_service import ReminderService
+from services.pushing.push_sender import PushSender
 
 LOCK_KEY = 8142026
 
@@ -60,9 +62,13 @@ async def run_daily(session: AsyncSession, *, today: date | None = None) -> dict
     generated = await OccurrenceGenerator(repo).sync_all_active(today=reference)
     await session.commit()
 
-    reminders = await ReminderService(repo, AuthRepository(session), EmailSender()).send_due(
-        on_date=reference
-    )
+    reminders = await ReminderService(
+        repo,
+        AuthRepository(session),
+        EmailSender(),
+        push_repo=PushRepository(session),
+        push_sender=PushSender(),
+    ).send_due(on_date=reference)
 
     if should_alert(reminders["emails_sent"], OPERATOR_EMAIL):
         await alert_operator(reference, reminders["emails_sent"])
