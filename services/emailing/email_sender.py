@@ -32,7 +32,7 @@ def _paragraphs(text: str) -> str:
     )
 
 
-def _wrap(locale, first_name, title, intro, rows, extra_html, note):
+def _wrap(locale, first_name, title, intro, rows, extra_html, note, cta=None):
     greeting = messages.text(locale, "greeting", name=first_name)
     body = layout.page(
         lang=locale,
@@ -43,6 +43,7 @@ def _wrap(locale, first_name, title, intro, rows, extra_html, note):
             layout.paragraph(intro),
             layout.rows_table(rows),
             extra_html,
+            layout.button(*cta) if cta else "",
         ],
         footer_html=layout.footer(
             note,
@@ -56,6 +57,10 @@ def _wrap(locale, first_name, title, intro, rows, extra_html, note):
         lines.append(f"- {row_title} - {meta}" + (f" - {amount}" if amount else ""))
         if detail:
             lines.append(f"  {detail}")
+    if cta:
+        # Le bouton n'existe que dans la version riche : sans cette ligne, un
+        # lecteur en texte seul n'avait aucun chemin vers l'application.
+        lines += ["", f"{cta[1]} : {cta[0]}"]
     lines += [
         "",
         messages.text(locale, "unsubscribe") + " : " + SETTINGS_URL,
@@ -185,6 +190,7 @@ class EmailSender:
             rows,
             "",
             messages.text(locale, "footer_why"),
+            cta=(f"{FRONTEND_URL}/calendrier", messages.text(locale, "notice_cta")),
         )
         return await self._send(self._reminder_params(to, subject, body, plain))
 
@@ -211,9 +217,7 @@ class EmailSender:
         question = messages.text(
             locale, messages.plural(count, "overdue_question_one", "overdue_question_many")
         )
-        extra = layout.paragraph(question) + layout.button(
-            f"{FRONTEND_URL}/calendrier", messages.text(locale, "overdue_cta")
-        )
+        extra = layout.paragraph(question)
         body, plain = _wrap(
             locale,
             first_name,
@@ -222,6 +226,7 @@ class EmailSender:
             rows,
             extra,
             messages.text(locale, "overdue_once"),
+            cta=(f"{FRONTEND_URL}/calendrier", messages.text(locale, "overdue_cta")),
         )
         return await self._send(self._reminder_params(to, subject, body, plain))
 
@@ -263,7 +268,7 @@ class EmailSender:
             meta = f"{headline} - {_due_label(item['days_left'], locale)}"
             rows.append((str(item["title"]), meta, detail, "", layout.LINK))
 
-        extra = layout.button(FRONTEND_URL, messages.text(locale, "open_app"))
+        extra = ""
         body, plain = _wrap(
             locale,
             first_name,
@@ -272,5 +277,6 @@ class EmailSender:
             rows,
             extra,
             messages.text(locale, "action_once"),
+            cta=(FRONTEND_URL, messages.text(locale, "open_app")),
         )
         return await self._send(self._reminder_params(to, subject, body, plain))

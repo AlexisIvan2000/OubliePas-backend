@@ -48,6 +48,7 @@ MESSAGES = {
         "footer_why": "Vous recevez ce message parce que les rappels sont activés sur votre compte.",
         "admin_why": "Ce message vous est envoyé par l'équipe OubliePas.",
         "unsubscribe": "Gérer mes rappels",
+        "notice_cta": "Voir le calendrier",
         "open_app": "Ouvrir OubliePas",
 
         "verify_subject": "Vérification de votre adresse",
@@ -102,6 +103,7 @@ MESSAGES = {
         "footer_why": "You are getting this because reminders are switched on for your account.",
         "admin_why": "This message was sent to you by the OubliePas team.",
         "unsubscribe": "Manage my reminders",
+        "notice_cta": "See the calendar",
         "open_app": "Open OubliePas",
 
         "verify_subject": "Verify your email address",
