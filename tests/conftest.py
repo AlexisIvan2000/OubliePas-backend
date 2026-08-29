@@ -162,7 +162,10 @@ def pushbox(monkeypatch):
     # qui permet de jouer une adresse morte sans serveur de push.
     from services.pushing.push_sender import PushSender
 
-    sent = []
+    class Pushbox(list):
+        result = "sent"
+
+    sent = Pushbox()
 
     async def capture(self, subscription, *, title, body, url):
         sent.append(
@@ -173,7 +176,7 @@ def pushbox(monkeypatch):
                 "url": url,
             }
         )
-        return getattr(sent, "result", "sent")
+        return sent.result
 
     monkeypatch.setattr(PushSender, "send", capture)
     return sent

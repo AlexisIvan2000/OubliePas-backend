@@ -25,6 +25,12 @@ class PushUnsubscribe(BaseModel):
     endpoint: str = Field(min_length=1, max_length=MAX_ENDPOINT_LENGTH)
 
 
+class PushTest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    endpoint: str = Field(min_length=1, max_length=MAX_ENDPOINT_LENGTH)
+
+
 class PushSubscriptionResponse(BaseModel):
     endpoint: str
     enabled: bool

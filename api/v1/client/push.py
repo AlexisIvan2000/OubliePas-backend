@@ -1,13 +1,15 @@
 from fastapi import APIRouter, Request, status
 
-from api.dependencies import CurrentUserDep, PushRepoDep
+from api.dependencies import CurrentUserDep, PushRepoDep, PushSenderDep
 from core.config import VAPID_PUBLIC_KEY, push_configured
+from core.exceptions import PushNotConfigured, PushSubscriptionGone
 from core.rate_limit import READ_LIMIT, limiter
 from models.schemas.auth_schema import MessageResponse
 from models.schemas.push_schema import (
     PushKeyResponse,
     PushSubscriptionIn,
     PushSubscriptionResponse,
+    PushTest,
     PushUnsubscribe,
 )
 
@@ -39,6 +41,32 @@ async def subscribe(
         user_agent=payload.user_agent,
     )
     return PushSubscriptionResponse(endpoint=saved.endpoint, enabled=user.reminder_push_enabled)
+
+
+@router.post("/test", response_model=MessageResponse)
+@limiter.limit("10/hour")
+async def send_test(
+    request: Request,
+    payload: PushTest,
+    user: CurrentUserDep,
+    repo: PushRepoDep,
+    sender: PushSenderDep,
+):
+    if not push_configured():
+        raise PushNotConfigured()
+
+    subscription = await repo.find(str(user.id), payload.endpoint)
+    if subscription is None:
+        raise PushSubscriptionGone()
+
+    # La preuve doit venir du service de push et non du navigateur : une
+    # notification fabriquee sur place s'afficherait meme quand rien n'est
+    # joignable, et l'interrupteur mentirait a celui qui vient de l'allumer.
+    if await sender.send_test(subscription, locale=user.locale) == "gone":
+        await repo.forget(payload.endpoint)
+        raise PushSubscriptionGone()
+
+    return MessageResponse(message="Test notification sent")
 
 
 @router.delete("/subscriptions", response_model=MessageResponse)

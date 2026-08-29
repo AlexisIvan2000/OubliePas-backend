@@ -172,12 +172,39 @@ same reminder would never leave.
 | `overdue` | past due and still unpaid |
 | `action_required` | a trial or cancellation-notice deadline is open |
 
-`ReminderService._dispatch` skips a user unless they are active, verified, have
-`reminder_email_enabled`, **and** have the switch for that family on
+`ReminderService._dispatch` runs once per channel. It skips a user unless they
+are active, verified, have that channel's switch on (`reminder_email_enabled`,
+`reminder_push_enabled`) **and** have the switch for that family on
 (`reminder_notice_enabled`, `reminder_overdue_enabled`,
 `reminder_action_enabled`). It commits after each user so a mid-run failure
-does not resend to those already emailed. A failed send is logged and left
+does not resend to those already reached. A failed send is logged and left
 unmarked, so the next run retries it.
+
+The two channels are independent in both directions: turning push off still
+sends the email, turning email off still sends the push, and a push failure is
+counted in `push_failed`, never in `failed` — only `failed` decides the exit
+code. A phone that cannot be reached must not fail a run in which every email
+went out.
+
+### Push notifications
+
+Web Push, RFC 8291 and RFC 8292: `py-vapid` signs the request, `http-ece`
+encrypts the payload, `httpx` posts it. `pywebpush` was deliberately not used —
+it pulls 19 packages including `aiohttp` and `requests`, and is synchronous.
+
+`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` go together;
+without all three `push_configured()` is false, the channel is never tried and
+`GET /v1/push/key` answers `{"public_key": null}` so the browser can say the
+feature is not installed rather than show a switch that does nothing. **Losing
+the private key invalidates every existing subscription**, silently: browsers
+keep subscribing against the old public key and the push service rejects the
+new signature. Back it up like `JWT_SECRET_KEY`. Both Railway services need
+them — the API registers devices, the cron sends.
+
+A push carries the title and the delay, never the amount: a notification is
+displayed on a locked screen, which is to say in public. A `404` or `410` from
+the push service means the address is dead — nobody else will ever tell us —
+so the row is deleted rather than retried forever.
 
 `jobs/daily.py` runs purge, then generate, then send, guarded by a Postgres
 advisory lock so two workers cannot both fire. When a run sends more than
@@ -215,11 +242,17 @@ the defect it prevents and watch the test fail, before calling it a guard.
 
 ## Deployment
 
-`railway.json` describes the API service and runs `alembic upgrade head` as a
-pre-deploy command, so migrations are applied automatically before traffic
-switches over. `railway.cron.json` describes a **second, separate service** that
-runs `python -m jobs.daily` at `0 12 * * *`. The send time is fixed at 12:00 UTC
-by design.
+`railway.json` describes the API service. `railway.cron.json` describes a
+**second, separate service** that runs `python -m jobs.daily` at `0 12 * * *`.
+The send time is fixed at 12:00 UTC by design.
+
+Migrations run at startup, not before it. The `lifespan` in `app.py` calls
+`core/migrations.py`, which runs `alembic upgrade head` through Alembic's API
+on the engine's own connection: no subprocess, no second engine, no synchronous
+driver (`psycopg2` is deliberately absent). A **blocking** advisory lock
+serialises replicas — an opportunistic one would let the loser serve requests
+against a half-built schema. A failure stops the container instead of letting
+the app answer 500 on every route that touches the database.
 
 The cron service imports `core.config` exactly like the API, so it needs the
 same three required variables plus `FRONTEND_URL`, the sender addresses and
@@ -229,6 +262,11 @@ same three required variables plus `FRONTEND_URL`, the sender addresses and
 deployment can be reported healthy while Postgres is unreachable.
 
 ## Traps that have already cost time
+
+**`preDeployCommand` in `railway.json` was never executed.** Three deployments
+served 500s on `relation "users" does not exist` while the build log showed no
+Alembic output at all. That is why migrations now run from `lifespan`, and why
+a green deployment is not evidence that a pre-deploy hook ran.
 
 **Migrations are never exercised by the test suite.** `tests/conftest.py` builds
 the schema with `Base.metadata.create_all`, so a green run says nothing about

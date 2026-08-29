@@ -20,6 +20,15 @@ class PushRepository:
         )
         return list(result.scalars().all())
 
+    async def find(self, user_id: str, endpoint: str) -> PushSubscription | None:
+        result = await self.session.execute(
+            select(PushSubscription).where(
+                PushSubscription.user_id == user_id,
+                PushSubscription.endpoint == endpoint,
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def save(
         self, user_id: str, *, endpoint: str, p256dh: str, auth: str, user_agent: str | None
     ) -> PushSubscription:

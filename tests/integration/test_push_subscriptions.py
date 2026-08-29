@@ -159,6 +159,75 @@ class TestUnsubscribe:
         assert len(db("select id from push_subscriptions")) == 1
 
 
+class TestTheTestNotification:
+    @pytest.fixture
+    def configured(self, monkeypatch):
+        import api.v1.client.push as route
+
+        monkeypatch.setattr(route, "push_configured", lambda: True)
+
+    def test_it_goes_through_the_push_service(self, client, verified, pushbox, configured):
+        # Fabriquer la notification dans le navigateur la ferait apparaitre meme
+        # si rien n'etait joignable : l'interrupteur passerait au vert sans
+        # qu'aucun rappel ne puisse jamais arriver.
+        subscribe(client, verified)
+
+        response = client.post(
+            "/v1/push/test", json={"endpoint": ENDPOINT}, headers=auth(token_of(verified))
+        )
+
+        assert response.status_code == 200
+        assert [entry["endpoint"] for entry in pushbox] == [ENDPOINT]
+
+    def test_it_leads_back_to_the_reminders_page(self, client, verified, pushbox, configured):
+        subscribe(client, verified)
+
+        client.post(
+            "/v1/push/test", json={"endpoint": ENDPOINT}, headers=auth(token_of(verified))
+        )
+
+        assert pushbox[0]["url"].endswith("/rappels")
+
+    def test_it_refuses_when_the_server_has_no_pair(self, client, verified, pushbox):
+        subscribe(client, verified)
+
+        response = client.post(
+            "/v1/push/test", json={"endpoint": ENDPOINT}, headers=auth(token_of(verified))
+        )
+
+        assert response.status_code == 503
+        assert response.json()["detail"]["code"] == "PUSH_NOT_CONFIGURED"
+        assert pushbox == []
+
+    def test_it_never_reaches_someone_elses_device(
+        self, client, verified, other_token, pushbox, configured
+    ):
+        subscribe(client, verified)
+
+        response = client.post(
+            "/v1/push/test", json={"endpoint": ENDPOINT}, headers=auth(other_token)
+        )
+
+        assert response.status_code == 410
+        assert pushbox == []
+
+    def test_a_dead_device_is_forgotten(self, client, verified, pushbox, configured, db):
+        subscribe(client, verified)
+        pushbox.result = "gone"
+
+        response = client.post(
+            "/v1/push/test", json={"endpoint": ENDPOINT}, headers=auth(token_of(verified))
+        )
+
+        # L'erreur remonte, mais l'effacement doit persister : sinon chaque
+        # essai suivant repartirait vers la meme adresse morte.
+        assert response.json()["detail"]["code"] == "PUSH_SUBSCRIPTION_GONE"
+        assert db("select id from push_subscriptions") == []
+
+    def test_it_needs_an_account(self, client):
+        assert client.post("/v1/push/test", json={"endpoint": ENDPOINT}).status_code == 401
+
+
 class TestTheSwitch:
     def test_it_is_off_until_asked(self, client, verified):
         body = client.get("/v1/auth/me", headers=auth(token_of(verified))).json()

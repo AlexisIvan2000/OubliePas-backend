@@ -271,3 +271,15 @@ class GoogleAccountAlreadyLinked(AppException):
     status_code = 409
     code = "GOOGLE_ACCOUNT_ALREADY_LINKED"
     message = "This email address is already linked to a different Google account"
+
+
+class PushNotConfigured(AppException):
+    status_code = 503
+    code = "PUSH_NOT_CONFIGURED"
+    message = "Push notifications are not available on this server"
+
+
+class PushSubscriptionGone(AppException):
+    status_code = 410
+    code = "PUSH_SUBSCRIPTION_GONE"
+    message = "This device is no longer reachable"
