@@ -29,6 +29,63 @@ def check_cors_policy(origins: list[str]) -> None:
         )
 
 
+def check_vapid_keys(
+    public_key: str | None, private_key: str | None, subject: str | None
+) -> None:
+    # Absente, la paire eteint le push et l'API vit sans : c'est un canal en
+    # plus. Presente mais illisible, rien ne la contredit avant le premier clic,
+    # parce que la signature n'est tentee qu'a l'envoi. L'utilisateur recolte
+    # alors un 500 pour une faute commise au deploiement.
+    if not public_key and not private_key:
+        return
+
+    import base64
+
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+    from py_vapid import Vapid02
+
+    if not public_key or not private_key:
+        absent = "VAPID_PUBLIC_KEY" if not public_key else "VAPID_PRIVATE_KEY"
+        raise RuntimeError(
+            f"{absent} is empty while the other half of the VAPID pair is set. "
+            f"Set both, or unset both to run without push."
+        )
+
+    try:
+        signer = Vapid02.from_raw(private_key.strip().encode("utf-8"))
+    except Exception as error:
+        raise RuntimeError(
+            "VAPID_PRIVATE_KEY is not a raw url-safe base64 key of 43 "
+            "characters. The contents of a .pem file are not accepted here. "
+            "Run `python scripts/generate_vapid_keys.py` for a fresh pair, or "
+            "`--from-pem <file>` to convert the one you already have."
+        ) from error
+
+    derived = (
+        base64.urlsafe_b64encode(
+            signer.public_key.public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
+        )
+        .decode()
+        .rstrip("=")
+    )
+
+    # Une paire depareillee ne leve nulle part : le navigateur s'abonne avec la
+    # cle annoncee, le service de push rejette les envois signes par l'autre, et
+    # personne n'apprend que les rappels ne partent plus.
+    if derived != public_key.strip().rstrip("="):
+        raise RuntimeError(
+            "VAPID_PUBLIC_KEY does not match VAPID_PRIVATE_KEY. Push services "
+            "would reject every notification, and nothing would say so. Use the "
+            "public key printed beside this private one."
+        )
+
+    if not subject or not subject.startswith(("mailto:", "https://")):
+        raise RuntimeError(
+            f"VAPID_SUBJECT must be a mailto: or https:// URL, got {subject!r}. "
+            f"Push services refuse a token whose sub is anything else."
+        )
+
+
 # Le pilote asynchrone ne se devine pas depuis un URL "postgresql://", que
 # toutes les plateformes fournissent sous cette forme. La regle vit ici pour
 # qu'Alembic l'applique aussi : sans elle, un -x db_url colle depuis le tableau
@@ -114,6 +171,9 @@ VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", "mailto:rappels@oubliepas.com")
 
 def push_configured() -> bool:
     return bool(VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY and VAPID_SUBJECT)
+
+
+check_vapid_keys(VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT)
 
 
 API_S3 = os.getenv("API_S3")

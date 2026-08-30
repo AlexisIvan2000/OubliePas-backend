@@ -155,6 +155,19 @@ def mailbox(monkeypatch):
     return sent
 
 
+@pytest.fixture(autouse=True)
+def _push_unconfigured(monkeypatch):
+    # La suite ne doit rien devoir au .env du poste. Une paire VAPID valide
+    # posee en local suffisait a faire echouer cinq tests, dont celui qui
+    # verifie que /push/key rend null quand le serveur n'a pas de paire : le
+    # canal s'allumait tout seul. Ceux qui veulent le push allume le disent
+    # eux-memes, en surchargeant push_configured la ou ils l'importent.
+    import core.config as config
+
+    monkeypatch.setattr(config, "VAPID_PUBLIC_KEY", None)
+    monkeypatch.setattr(config, "VAPID_PRIVATE_KEY", None)
+
+
 @pytest.fixture
 def pushbox(monkeypatch):
     # Calque du mailbox : rien ne sort sur le reseau, et le contenu reste

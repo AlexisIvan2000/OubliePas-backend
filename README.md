@@ -201,6 +201,15 @@ keep subscribing against the old public key and the push service rejects the
 new signature. Back it up like `JWT_SECRET_KEY`. Both Railway services need
 them — the API registers devices, the cron sends.
 
+Both keys are **raw url-safe base64**, never PEM: `python
+scripts/generate_vapid_keys.py` mints a pair, `--from-pem <file>` converts one
+you already have. The `vapid` command shipped with `py_vapid` writes `.pem`
+files that `Vapid02.from_raw` rejects, and the rejection happens at the first
+signature — which is to say in front of a user, as a 500. `check_vapid_keys`
+in `core/config.py` therefore refuses to boot on a pair that is present but
+unreadable, or whose two halves come from different pairs. An absent pair still
+boots: push is a channel, not a condition.
+
 A push carries the title and the delay, never the amount: a notification is
 displayed on a locked screen, which is to say in public. A `404` or `410` from
 the push service means the address is dead — nobody else will ever tell us —

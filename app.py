@@ -1,3 +1,5 @@
+import logging
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -18,6 +20,21 @@ from core.database import dispose_engine
 from core.exceptions import AppException
 from core.migrations import run_migrations
 from core.rate_limit import client_ip, limiter
+
+
+def configure_logging() -> None:
+    # Uvicorn ne configure que ses trois loggers a lui et laisse la racine sans
+    # handler. Tout ce que l'application journalise tombait donc dans le filet
+    # de secours de Python : sur stderr, sans niveau ni horodatage, et muet en
+    # dessous de WARNING. Une trace de 500 y passait pour une ligne anodine.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        stream=sys.stdout,
+    )
+
+
+configure_logging()
 
 
 @asynccontextmanager
