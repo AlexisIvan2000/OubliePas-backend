@@ -242,9 +242,17 @@ the defect it prevents and watch the test fail, before calling it a guard.
 
 ## Deployment
 
-`railway.json` describes the API service. `railway.cron.json` describes a
-**second, separate service** that runs `python -m jobs.daily` at `0 12 * * *`.
-The send time is fixed at 12:00 UTC by design.
+Two separate Railway services deploy from this repository: the API, and a
+second one that runs `python -m jobs.daily` at `0 12 * * *`. The send time is
+fixed at 12:00 UTC by design.
+
+**Start command, healthcheck path, cron schedule and restart policy are set in
+the Railway dashboard**, one set per service, and the dashboard is the single
+source of truth for them. `railway.json` and `railway.cron.json` are no longer
+tracked by git: Railway retires Config as Code on 2026-12-01, and the one
+setting they carried that the dashboard did not had never taken effect anyway.
+Both files stay in the working tree, git-ignored, as a record of the intended
+values — Railway builds from the repository, so it never reads them.
 
 Migrations run at startup, not before it. The `lifespan` in `app.py` calls
 `core/migrations.py`, which runs `alembic upgrade head` through Alembic's API
@@ -263,7 +271,7 @@ deployment can be reported healthy while Postgres is unreachable.
 
 ## Traps that have already cost time
 
-**`preDeployCommand` in `railway.json` was never executed.** Three deployments
+**A `preDeployCommand` declared in Config as Code was never executed.** Three deployments
 served 500s on `relation "users" does not exist` while the build log showed no
 Alembic output at all. That is why migrations now run from `lifespan`, and why
 a green deployment is not evidence that a pre-deploy hook ran.

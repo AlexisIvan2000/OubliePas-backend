@@ -46,3 +46,8 @@ uploads/
 CLAUDE.md
 vapid_private.pem
 vapid_public.pem
+
+# Configuration Railway (le tableau de bord fait foi, ces fichiers ne sont
+# qu'un mémo local des valeurs attendues)
+railway.json
+railway.cron.json
