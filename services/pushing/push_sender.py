@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 
 import http_ece
 import httpx
+from cryptography.hazmat.primitives.asymmetric import ec
 from py_vapid import Vapid02
 
 from core.config import (
@@ -69,10 +70,14 @@ class PushSender:
             raise RuntimeError("VAPID keys are missing")
 
         payload = json.dumps({"title": title, "body": body, "url": url}).encode("utf-8")
+        # aes128gcm impose une paire ephemere par envoi : sa cle publique
+        # voyage dans l'en-tete du corps chiffre, et c'est elle que le
+        # navigateur combine a la sienne pour retrouver le secret partage.
+        # Sans elle http_ece refuse, avant meme d'ouvrir une connexion.
         encrypted = http_ece.encrypt(
             payload,
             salt=os.urandom(16),
-            private_key=None,
+            private_key=ec.generate_private_key(ec.SECP256R1()),
             dh=_b64(subscription.p256dh),
             auth_secret=_b64(subscription.auth),
             version="aes128gcm",
