@@ -410,6 +410,26 @@ class CommitmentRepository:
         await self.session.flush()
         return occurrence
 
+    async def due_between(
+        self, start: date, end: date
+    ) -> list[tuple[CommitmentOccurrence, Commitment]]:
+        # Le recapitulatif ne filtre pas sur is_reminder_enabled, contrairement
+        # aux rappels : c'est une image de la semaine, et en retirer une ligne
+        # fausserait le total annonce juste en dessous.
+        result = await self.session.execute(
+            select(CommitmentOccurrence, Commitment)
+            .join(Commitment, Commitment.id == CommitmentOccurrence.commitment_id)
+            .where(
+                CommitmentOccurrence.status == "pending",
+                CommitmentOccurrence.due_date >= start,
+                CommitmentOccurrence.due_date <= end,
+                Commitment.status == "active",
+                Commitment.deleted_at.is_(None),
+            )
+            .order_by(CommitmentOccurrence.due_date)
+        )
+        return list(result.all())
+
     def _unreminded(self, kind: str, *, earliest: date, latest: date, channel: str):
         sent = select(OccurrenceReminder.id).where(
             OccurrenceReminder.occurrence_id == CommitmentOccurrence.id,

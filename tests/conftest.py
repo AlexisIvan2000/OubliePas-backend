@@ -145,6 +145,21 @@ def mailbox(monkeypatch):
         )
         return {"id": "test"}
 
+    async def capture_weekly(self, to, *, first_name, items, currency, week_start, locale="fr"):
+        sent.append(
+            {
+                "kind": "weekly",
+                "to": to,
+                "first_name": first_name,
+                "items": items,
+                "currency": currency,
+                "week_start": week_start,
+                "locale": locale,
+            }
+        )
+        return {"id": "test"}
+
+    monkeypatch.setattr(EmailSender, "send_weekly_digest_email", capture_weekly)
     monkeypatch.setattr(EmailSender, "send_reminder_email", capture_reminder)
     monkeypatch.setattr(EmailSender, "send_action_email", capture_action)
     monkeypatch.setattr(EmailSender, "send_overdue_email", capture_overdue)

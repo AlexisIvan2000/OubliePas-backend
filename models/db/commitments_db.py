@@ -171,3 +171,37 @@ class OccurrenceReminder(Base):
     )
 
     occurrence: Mapped["CommitmentOccurrence"] = relationship(back_populates="reminders")
+
+
+class WeeklyDigest(Base):
+    """Trace d'un recapitulatif hebdomadaire deja envoye.
+
+    Table separee des rappels d'echeance : ceux-la repondent « cette echeance
+    merite-t-elle qu'on en dise un mot », celui-ci « cette personne a-t-elle vu
+    sa semaine ». Le sujet est le compte, pas l'occurrence, et la clef unique
+    doit donc porter sur la semaine. Reutiliser occurrence_reminders avec un
+    occurrence_id nullable aurait desarme sa contrainte, c'est-a-dire la seule
+    chose qui empeche deux envois le meme lundi.
+    """
+
+    __tablename__ = "weekly_digests"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "week_start", "channel", name="uq_weekly_digest_user_week_channel"
+        ),
+        CheckConstraint(
+            _in_clause("channel", REMINDER_CHANNELS), name="weekly_digests_channel_check"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    week_start: Mapped[date] = mapped_column(Date, index=True)
+    channel: Mapped[str] = mapped_column(
+        String(10), server_default=DEFAULT_REMINDER_CHANNEL, default=DEFAULT_REMINDER_CHANNEL
+    )
+    sent_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )

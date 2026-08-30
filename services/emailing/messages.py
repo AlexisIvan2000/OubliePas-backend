@@ -75,6 +75,13 @@ MESSAGES = {
         "change_intro": "Utilisez ce code pour confirmer votre nouvelle adresse.",
         "change_ignore": "Si vous n'avez rien demandé, ignorez ce message.",
 
+        "weekly_subject": "Votre semaine du {day}",
+        "weekly_intro_one": "Une échéance cette semaine :",
+        "weekly_intro_many": "{count} échéances cette semaine :",
+        "weekly_total": "Total de la semaine : {amount}",
+        "weekly_cta": "Voir le calendrier",
+        "weekly_why": "Vous recevez ce récapitulatif chaque lundi parce que vous l'avez demandé. Il se coupe depuis la page Rappels.",
+
         "notice_subject_one": "1 échéance à venir",
         "notice_subject_many": "{count} échéances à venir",
         "notice_intro_one": "Voici votre prochaine échéance :",
@@ -137,6 +144,13 @@ MESSAGES = {
         "change_title": "Email change",
         "change_intro": "Use this code to confirm your new address.",
         "change_ignore": "If you did not ask for this, please ignore this message.",
+
+        "weekly_subject": "Your week of {day}",
+        "weekly_intro_one": "One payment this week:",
+        "weekly_intro_many": "{count} payments this week:",
+        "weekly_total": "Week total: {amount}",
+        "weekly_cta": "See the calendar",
+        "weekly_why": "You get this recap every Monday because you asked for it. You can switch it off from the Reminders page.",
 
         "notice_subject_one": "1 payment coming up",
         "notice_subject_many": "{count} payments coming up",

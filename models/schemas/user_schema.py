@@ -37,6 +37,7 @@ class UpdateProfile(BaseModel):
     reminder_notice_enabled: bool | None = None
     reminder_overdue_enabled: bool | None = None
     reminder_action_enabled: bool | None = None
+    reminder_weekly_enabled: bool | None = None
     default_reminder_days: int | None = Field(default=None, ge=0, le=MAX_REMINDER_DAYS)
     locale: Literal["fr", "en"] | None = None
 

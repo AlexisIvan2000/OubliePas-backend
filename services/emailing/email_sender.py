@@ -1,4 +1,5 @@
 import asyncio
+from decimal import Decimal
 from functools import partial
 from typing import Dict
 
@@ -191,6 +192,46 @@ class EmailSender:
             "",
             messages.text(locale, "footer_why"),
             cta=(f"{FRONTEND_URL}/calendrier", messages.text(locale, "notice_cta")),
+        )
+        return await self._send(self._reminder_params(to, subject, body, plain))
+
+    async def send_weekly_digest_email(
+        self, to: str, *, first_name: str, items: list, currency: str, week_start, locale: str = "fr"
+    ) -> Dict:
+        locale = messages.pick(locale)
+        count = len(items)
+        total = sum(Decimal(str(item["amount"])) for item in items)
+        subject = messages.text(
+            locale, "weekly_subject", day=messages.day(week_start, locale)
+        )
+        rows = [
+            (
+                str(item["title"]),
+                messages.day(item["due_date"], locale),
+                "",
+                messages.money(item["amount"], currency, locale),
+                layout.MUTED,
+            )
+            for item in items
+        ]
+        # Le total sous le tableau : c'est la seule chose que ce courriel
+        # apporte qu'un rappel a l'unite ne dit pas.
+        extra = layout.paragraph(
+            messages.text(
+                locale, "weekly_total", amount=messages.money(total, currency, locale)
+            )
+        )
+        body, plain = _wrap(
+            locale,
+            first_name,
+            subject,
+            messages.text(
+                locale, messages.plural(count, "weekly_intro_one", "weekly_intro_many"), count=count
+            ),
+            rows,
+            extra,
+            messages.text(locale, "weekly_why"),
+            cta=(f"{FRONTEND_URL}/calendrier", messages.text(locale, "weekly_cta")),
         )
         return await self._send(self._reminder_params(to, subject, body, plain))
 

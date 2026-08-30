@@ -83,6 +83,11 @@ class User(Base):
     reminder_action_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=sa.text("true")
     )
+    # Faux par defaut : le recapitulatif est un envoi de plus, pas un reglage
+    # qu'on subit. Ceux qui le veulent le demandent.
+    reminder_weekly_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=sa.text("false")
+    )
     default_reminder_days: Mapped[int] = mapped_column(
         Integer,
         default=DEFAULT_REMINDER_DAYS,

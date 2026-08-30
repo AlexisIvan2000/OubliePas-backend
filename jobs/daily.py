@@ -17,7 +17,9 @@ from repositories.commitment_repository import CommitmentRepository
 from repositories.push_repository import PushRepository
 from services.commitments.occurrence_generator import OccurrenceGenerator, today_utc
 from services.emailing.email_sender import EmailSender
+from repositories.digest_repository import DigestRepository
 from services.notifications.reminder_service import ReminderService
+from services.notifications.weekly_digest import WeeklyDigestService
 from services.pushing.push_sender import PushSender
 
 LOCK_KEY = 8142026
@@ -70,8 +72,18 @@ async def run_daily(session: AsyncSession, *, today: date | None = None) -> dict
         push_sender=PushSender(),
     ).send_due(on_date=reference)
 
-    if should_alert(reminders["emails_sent"], OPERATOR_EMAIL):
-        await alert_operator(reference, reminders["emails_sent"])
+    # Le recapitulatif n'a pas de planification propre : le passage quotidien
+    # existe deja, il lui suffit de demander quel jour on est. Le rattrapage
+    # d'un lundi manque se fait donc les jours suivants, jusqu'a dimanche.
+    digest = await WeeklyDigestService(
+        repo, AuthRepository(session), DigestRepository(session), EmailSender()
+    ).send(on_date=reference)
+
+    # Le seuil se juge sur le total du passage : un lundi, le recapitulatif
+    # part a tous les abonnes d'un coup et c'est ce pic qui approche du quota.
+    total_emails = reminders["emails_sent"] + digest["weekly_sent"]
+    if should_alert(total_emails, OPERATOR_EMAIL):
+        await alert_operator(reference, total_emails)
 
     return {
         "date": reference.isoformat(),
@@ -79,6 +91,7 @@ async def run_daily(session: AsyncSession, *, today: date | None = None) -> dict
         "purged": purged,
         "reminders_purged": forgotten,
         **reminders,
+        **digest,
     }
 
 

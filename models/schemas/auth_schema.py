@@ -88,6 +88,7 @@ class UserResponse(BaseModel):
     reminder_notice_enabled: bool = True
     reminder_overdue_enabled: bool = True
     reminder_action_enabled: bool = True
+    reminder_weekly_enabled: bool = False
     default_reminder_days: int = 3
     locale: str = DEFAULT_LOCALE
     commitment_limit: int = MAX_COMMITMENTS_PER_TYPE
