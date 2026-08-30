@@ -25,12 +25,17 @@ from core.rate_limit import client_ip, limiter
 def configure_logging() -> None:
     # Uvicorn ne configure que ses trois loggers a lui et laisse la racine sans
     # handler. Tout ce que l'application journalise tombait donc dans le filet
-    # de secours de Python : sur stderr, sans niveau ni horodatage, et muet en
-    # dessous de WARNING. Une trace de 500 y passait pour une ligne anodine.
+    # de secours de Python : sans niveau ni horodatage, et muet en dessous de
+    # WARNING. Une trace de 500 y passait pour une ligne anodine.
+    #
+    # stderr et non stdout : hors terminal, Python bufferise stdout par blocs et
+    # ne le vide qu'une fois 8 Ko accumules. Dans un conteneur, la trace du 500
+    # que l'on cherche reste alors dans le tampon pendant que la plateforme
+    # n'affiche rien. stderr, lui, est ligne a ligne, comme dans jobs/daily.py.
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
-        stream=sys.stdout,
+        stream=sys.stderr,
     )
 
 
