@@ -8,6 +8,8 @@ from cryptography.hazmat.primitives.serialization import (
 )
 from py_vapid import Vapid01
 
+NAMES = ("VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY")
+
 
 def b64(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
@@ -22,6 +24,32 @@ def encode(private_key) -> tuple[str, str]:
     return b64(public), b64(private)
 
 
+def write_env(path: str, values: dict) -> None:
+    # Reecriture ligne a ligne plutot qu'un rendu complet du fichier : .env
+    # porte des commentaires et un ordre qui appartiennent a celui qui l'a
+    # ecrit. La cle privee ne transite par aucun affichage.
+    with open(path, "rb") as handle:
+        raw = handle.read()
+
+    crlf = raw.count(b"\r\n") > 0
+    lines = raw.decode("utf-8").replace("\r\n", "\n").split("\n")
+
+    seen = set()
+    for index, line in enumerate(lines):
+        for name in NAMES:
+            if line.startswith(name + "="):
+                lines[index] = name + "=" + values[name]
+                seen.add(name)
+
+    absent = [name for name in NAMES if name not in seen]
+    if absent:
+        raise SystemExit(path + " : aucune ligne " + " ni ".join(absent) + " a remplacer.")
+
+    text = "\n".join(lines)
+    with open(path, "wb") as handle:
+        handle.write((text.replace("\n", "\r\n") if crlf else text).encode("utf-8"))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Print a VAPID pair in the raw url-safe base64 form the API expects."
@@ -30,6 +58,11 @@ def main() -> None:
         "--from-pem",
         metavar="FILE",
         help="convert an existing private key instead of generating a new one",
+    )
+    parser.add_argument(
+        "--write-env",
+        metavar="FILE",
+        help="write the pair into that env file instead of printing the private half",
     )
     args = parser.parse_args()
 
@@ -43,9 +76,17 @@ def main() -> None:
 
     public, private = encode(key)
 
-    print(f"VAPID_PUBLIC_KEY={public}")
-    print(f"VAPID_PRIVATE_KEY={private}")
-    print()
+    if args.write_env:
+        write_env(args.write_env, {"VAPID_PUBLIC_KEY": public, "VAPID_PRIVATE_KEY": private})
+        print(args.write_env + " updated. The private key was not displayed.")
+        print("Public key: " + public)
+        print()
+        print("For Railway, copy both values out of that file.")
+    else:
+        print("VAPID_PUBLIC_KEY=" + public)
+        print("VAPID_PRIVATE_KEY=" + private)
+        print()
+
     print("Set both on every Railway service, API and cron alike.")
     print("Back the private key up like JWT_SECRET_KEY: losing it silently")
     print("invalidates every subscription browsers have already stored.")
