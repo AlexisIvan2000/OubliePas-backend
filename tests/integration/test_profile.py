@@ -1,5 +1,7 @@
 import pytest
 
+from models.schemas.user_schema import UpdateProfile
+
 pytestmark = pytest.mark.integration
 
 
@@ -226,3 +228,30 @@ class TestProfileFieldLimits:
         db("update users set is_active = false where email = :e", e=verified["email"])
         response = client.patch("/v1/users/me", headers=auth(token), json={"last_name": "X"})
         assert response.status_code == 403
+
+
+class TestEveryPreferenceComesBack:
+    """La reponse de profil est batie champ par champ dans api/responses.py.
+
+    Ajouter une preference a la table et au schema sans l'ajouter la produit une
+    reponse qui rend eternellement le defaut : l'ecriture passe, la relecture
+    ment, et l'interrupteur retombe sous les doigts sans qu'aucune erreur ne
+    s'affiche. C'est arrive avec reminder_weekly_enabled.
+    """
+
+    PREFERENCES = sorted(
+        nom for nom in UpdateProfile.model_fields if nom.startswith("reminder_")
+    )
+
+    @pytest.mark.parametrize("champ", PREFERENCES)
+    def test_what_was_written_is_what_is_read(self, client, token, champ):
+        actuel = client.get("/v1/users/me", headers=auth(token)).json()[champ]
+
+        client.patch("/v1/users/me", json={champ: not actuel}, headers=auth(token))
+
+        relu = client.get("/v1/users/me", headers=auth(token)).json()[champ]
+        assert relu is (not actuel), f"{champ} n'est pas rendu par api/responses.py"
+
+    def test_the_list_is_not_empty(self):
+        # Une regex qui ne trouve plus rien ferait passer la garde a vide.
+        assert len(self.PREFERENCES) >= 5

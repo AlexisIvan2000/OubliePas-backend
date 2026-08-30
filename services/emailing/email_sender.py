@@ -24,8 +24,6 @@ CODE_MAILS = {
 
 
 def _paragraphs(text: str) -> str:
-    # Un saut simple reste un saut de ligne, un saut double ouvre un paragraphe :
-    # le texte est ecrit a la main dans l'outil d'envoi, pas en HTML.
     return "".join(
         layout.paragraph(block.strip()).replace("\n", "<br/>")
         for block in text.strip().split("\n\n")
@@ -59,8 +57,6 @@ def _wrap(locale, first_name, title, intro, rows, extra_html, note, cta=None):
         if detail:
             lines.append(f"  {detail}")
     if cta:
-        # Le bouton n'existe que dans la version riche : sans cette ligne, un
-        # lecteur en texte seul n'avait aucun chemin vers l'application.
         lines += ["", f"{cta[1]} : {cta[0]}"]
     lines += [
         "",
