@@ -55,10 +55,12 @@ def check_vapid_keys(
         signer = Vapid02.from_raw(private_key.strip().encode("utf-8"))
     except Exception as error:
         raise RuntimeError(
-            "VAPID_PRIVATE_KEY is not a raw url-safe base64 key of 43 "
-            "characters. The contents of a .pem file are not accepted here. "
-            "Run `python scripts/generate_vapid_keys.py` for a fresh pair, or "
-            "`--from-pem <file>` to convert the one you already have."
+            f"VAPID_PRIVATE_KEY must be a raw url-safe base64 key of 43 "
+            f"characters, got {len(private_key.strip())}. A .pem file will not "
+            f"do, and neither will the base64 body inside it: 184 characters is "
+            f"a DER key, not a raw one. Run "
+            f"`python scripts/generate_vapid_keys.py` for a fresh pair, or "
+            f"`--from-pem <file>` to convert one you already have."
         ) from error
 
     derived = (
