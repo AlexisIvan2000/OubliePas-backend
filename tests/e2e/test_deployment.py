@@ -23,12 +23,7 @@ class TestTheApiAnswers:
         assert response.json() == {"status": "ok"}
 
     def test_answering_at_all_proves_alembic_reached_head(self, api):
-        # Ce n'est pas une tautologie. Le lifespan joue les migrations avant de
-        # servir la moindre requete, et un echec arrete le conteneur au lieu de
-        # le laisser repondre. Une reponse ici prouve donc que le schema est a
-        # jour — la seule verification de ce genre qu'on puisse faire de
-        # l'exterieur, et celle que la suite d'integration ne peut pas faire du
-        # tout puisqu'elle batit son schema avec create_all.
+       
         assert api.get("/health").status_code == 200
 
     def test_an_unknown_route_is_a_plain_404(self, api):

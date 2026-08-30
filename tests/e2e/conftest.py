@@ -3,11 +3,7 @@ import os
 import httpx
 import pytest
 
-# Ces tests frappent un deploiement reel. Ils sont donc en lecture seule : rien
-# n'est cree, aucun courriel ne part, aucun quota n'est consomme. Ils
-# n'attestent que ce qu'aucune autre suite ne peut voir — la configuration du
-# deploiement lui-meme, qui ne vit pas dans le code mais dans le tableau de
-# bord de la plateforme.
+
 API_URL = os.getenv("E2E_API_URL")
 FRONTEND_URL = os.getenv("E2E_FRONTEND_URL")
 
