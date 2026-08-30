@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 
 from core.exceptions import (
@@ -25,6 +26,9 @@ from services.emailing.otp_service import OtpService, check_otp
 MAX_LOGIN_ATTEMPTS_PER_HOUR = 20
 LOGIN_WINDOW_HOURS = 1
 
+
+
+logger = logging.getLogger(__name__)
 
 class EmailPasswordAuth:
     def __init__(self, auth_repo: AuthRepository, refresh_token_repo: RefreshTokenRepository, otp_service: OtpService):
@@ -80,18 +84,15 @@ class EmailPasswordAuth:
             raise InvalidCredentials()
 
         if self._login_locked(db_user, now):
-            # Meme reponse et meme cout qu'un mot de passe faux : sans cette
-            # verification a vide, le refus serait plus rapide et signalerait
-            # que le compte existe.
+            logger.warning("login refused for user %s (locked out)", db_user.id)
+            
             await Security.dummy_verify_async()
             raise InvalidCredentials()
 
         if not await Security.verify_password_async(db_user.password_hash, user.password):
-            await self.repo.record_failed_login(
-                str(db_user.id),
-                count=self._next_failure_count(db_user, now),
-                at=now,
-            )
+            echecs = self._next_failure_count(db_user, now)
+            await self.repo.record_failed_login(str(db_user.id), count=echecs, at=now)
+            logger.warning("login refused for user %s (failure %s)", db_user.id, echecs)
             raise InvalidCredentials()
 
         if db_user.failed_login_count:
@@ -102,6 +103,8 @@ class EmailPasswordAuth:
 
         if not db_user.is_verified:
             raise EmailNotVerified()
+
+        logger.info("login accepted for user %s", db_user.id)
 
         if Security.needs_rehash(db_user.password_hash):
             await self.repo.update_user(str(db_user.id), {

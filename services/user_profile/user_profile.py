@@ -93,9 +93,6 @@ class UserProfile:
         if await Security.verify_password_async(db_user.password_hash, data.new_password):
             raise SamePasswordAsBefore()
 
-        # update_password et non update_user : il efface aussi le code de
-        # reinitialisation en cours. Sans cela, un code parti par courriel
-        # resterait valide un quart d'heure apres le changement.
         await self.repo.update_password(
             user_id, await Security.hash_password_async(data.new_password)
         )
@@ -109,9 +106,6 @@ class UserProfile:
         if db_user.password_hash:
             raise PasswordAlreadySet()
 
-        # Pas de revocation des sessions, contrairement au changement et a la
-        # reinitialisation : poser un premier mot de passe ajoute une cle, il
-        # n'en remplace aucune, donc aucune session ouverte n'est suspecte.
         await self.repo.update_user(user_id, {
             "password_hash": await Security.hash_password_async(data.new_password),
         })
@@ -235,6 +229,7 @@ class UserProfile:
 
         avatar_key = db_user.avatar_key
 
+        logger.warning("user %s deleted their account", user_id)
         await self.repo.delete_user(user_id)
 
         if is_stored_key(avatar_key) and not await self.storage.delete(avatar_key):

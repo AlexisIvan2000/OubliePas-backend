@@ -32,8 +32,6 @@ class TestTheApiAnswers:
 
 class TestTheErrorEnvelope:
     def test_a_refusal_carries_a_code_and_a_message(self, api):
-        # Le front choisit son texte sur « code » : une enveloppe d'une autre
-        # forme lui ferait afficher le message generique a la place du bon.
         response = api.get("/v1/push/key")
 
         assert response.status_code == 401
@@ -45,9 +43,6 @@ class TestTheErrorEnvelope:
 class TestTheProductionSwitches:
     @pytest.mark.parametrize("route", ["/docs", "/redoc", "/openapi.json"])
     def test_the_schema_is_not_published(self, api, route):
-        # DEBUG faux ferme ces trois routes. Ouvertes, elles decriraient toute
-        # la surface de l'API a un service qui n'a qu'un client, deja au
-        # courant.
         assert api.get(route).status_code == 404
 
     @pytest.mark.parametrize("header", SECURITY_HEADERS)
@@ -55,8 +50,6 @@ class TestTheProductionSwitches:
         assert header in {name.lower() for name in api.get("/health").headers}
 
     def test_the_transport_is_pinned_for_two_years(self, api):
-        # Le cookie de rafraichissement est Secure : sans HSTS, une premiere
-        # visite en clair pourrait encore etre detournee.
         valeur = api.get("/health").headers["strict-transport-security"]
 
         assert "includeSubDomains" in valeur
@@ -73,14 +66,9 @@ class TestCors:
         )
 
         assert response.headers.get("access-control-allow-origin") == origine
-        # Sans cette ligne le navigateur enverrait la requete sans le cookie de
-        # session, et toute l'application repondrait 401.
         assert response.headers.get("access-control-allow-credentials") == "true"
 
     def test_a_stranger_gets_no_permission(self, api):
-        # L'en-tete absent suffit : c'est le navigateur qui bloque, pas le
-        # serveur. Un « * » ici, avec les identifiants autorises, serait refuse
-        # par le navigateur et casserait la session au lieu de la proteger.
         response = api.request(
             "OPTIONS",
             "/v1/push/key",
@@ -95,9 +83,8 @@ class TestCors:
 
 class TestTheServiceWorker:
     def test_it_is_served_from_the_root(self, site):
-        # La portee d'un service worker vient du chemin de son fichier : servi
-        # ailleurs qu'a la racine, il ne verrait pas les pages qu'il doit
-        # reveiller, et aucune notification n'arriverait.
+        # La portee vient du chemin du fichier : ailleurs, il ne verrait pas
+        # les pages qu'il doit reveiller.
         response = site.get("/sw.js")
 
         assert response.status_code == 200
@@ -111,17 +98,11 @@ class TestTheServiceWorker:
         manifest = json.loads(response.text)
         assert manifest["scope"] == "/"
         assert manifest["start_url"] == "/"
-        # Sans « standalone », l'ajout a l'ecran d'accueil sur iPhone n'ouvre
-        # pas une application mais un onglet, et Safari n'y expose pas
-        # PushManager.
         assert manifest["display"] == "standalone"
 
 
 class TestTheBundle:
     def test_it_calls_the_deployed_api_and_not_a_laptop(self, site, api):
-        # Un VITE_API_URL oublie a localhost produit un site qui s'affiche
-        # parfaitement et ne peut joindre personne. Rien dans le build ne le
-        # signale.
         index = site.get("/")
         assert index.status_code == 200
 

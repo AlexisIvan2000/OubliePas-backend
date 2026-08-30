@@ -60,9 +60,7 @@ def add(client, token, **overrides):
 class TestTheWeekStart:
     @pytest.mark.parametrize("weekday", range(7))
     def test_every_day_points_at_its_own_monday(self, weekday):
-        # Le 2026-08-31 est un lundi ; les sept jours qui suivent doivent tous
-        # ramener a lui, sinon deux passages de la meme semaine creeraient deux
-        # clefs et donc deux envois.
+        # Deux clefs pour la meme semaine feraient deux envois.
         monday = date(2026, 8, 31)
         assert week_start(monday + timedelta(days=weekday)) == monday
 
@@ -72,8 +70,6 @@ class TestTheWeekStart:
 
 class TestTheSwitch:
     def test_nothing_goes_out_while_the_recap_is_off(self, client, token, run_job, digests):
-        # Le defaut est faux : personne ne doit recevoir un courriel de plus
-        # sans l'avoir demande.
         monday = a_monday()
         add(client, token, starts_on=(monday + timedelta(days=2)).isoformat())
 
@@ -119,8 +115,7 @@ class TestOncePerWeek:
     def test_the_days_that_follow_send_nothing_either(
         self, client, subscribed, run_job, digests
     ):
-        # C'est la clef (compte, semaine, canal) qui tient cette promesse, pas
-        # une garde sur le jour de la semaine.
+        # C'est la clef, et non une garde sur le jour, qui tient la promesse.
         monday = a_monday()
         add(client, subscribed, starts_on=(monday + timedelta(days=4)).isoformat())
 
@@ -150,8 +145,6 @@ class TestTheCatchUp:
     def test_a_failed_monday_is_picked_up_the_next_day(
         self, client, subscribed, run_job, digests
     ):
-        # Sans rattrapage, un incident du lundi couterait la semaine entiere et
-        # personne ne l'apprendrait.
         from services.emailing.email_sender import EmailSender
 
         monday = a_monday()
@@ -176,7 +169,6 @@ class TestWhatItCarries:
     def test_an_empty_week_is_not_worth_a_message(
         self, client, subscribed, run_job, digests
     ):
-        # Un recapitulatif de rien est du bruit, et coute un envoi au quota.
         monday = a_monday()
         add(client, subscribed, starts_on=(monday + timedelta(days=40)).isoformat())
 
@@ -200,12 +192,8 @@ class TestWhatItCarries:
         assert titres == ["Netflix"]
 
     def test_a_catch_up_looks_forward_only(self, client, subscribed, run_job, digests):
-        # Une reprise du mercredi n'annonce pas le lundi passe : la famille
-        # 'overdue' s'en occupe deja, et mieux.
-        #
         # La facture est ponctuelle a dessein : le generateur refuse de creer
-        # une echeance recurrente anterieure au jour du passage, si bien qu'une
-        # ligne « du lundi » n'existerait pas et que le test ne prouverait rien.
+        # une echeance recurrente anterieure au jour du passage.
         monday = a_monday()
         client.post(
             "/v1/commitments",

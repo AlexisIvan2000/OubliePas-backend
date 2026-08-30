@@ -32,10 +32,8 @@ def check_cors_policy(origins: list[str]) -> None:
 def check_vapid_keys(
     public_key: str | None, private_key: str | None, subject: str | None
 ) -> None:
-    # Absente, la paire eteint le push et l'API vit sans : c'est un canal en
-    # plus. Presente mais illisible, rien ne la contredit avant le premier clic,
-    # parce que la signature n'est tentee qu'a l'envoi. L'utilisateur recolte
-    # alors un 500 pour une faute commise au deploiement.
+    # Absente, le push s'eteint et l'API vit sans. Presente mais illisible,
+    # la faute n'apparaitrait qu'au premier clic, en 500.
     if not public_key and not private_key:
         return
 
@@ -71,9 +69,8 @@ def check_vapid_keys(
         .rstrip("=")
     )
 
-    # Une paire depareillee ne leve nulle part : le navigateur s'abonne avec la
-    # cle annoncee, le service de push rejette les envois signes par l'autre, et
-    # personne n'apprend que les rappels ne partent plus.
+    # Une paire depareillee ne leve nulle part : le service de push rejette
+    # en silence, et personne n'apprend que les rappels ne partent plus.
     if derived != public_key.strip().rstrip("="):
         raise RuntimeError(
             "VAPID_PUBLIC_KEY does not match VAPID_PRIVATE_KEY. Push services "
@@ -88,10 +85,8 @@ def check_vapid_keys(
         )
 
 
-# Le pilote asynchrone ne se devine pas depuis un URL "postgresql://", que
-# toutes les plateformes fournissent sous cette forme. La regle vit ici pour
-# qu'Alembic l'applique aussi : sans elle, un -x db_url colle depuis le tableau
-# de bord echoue sur une erreur de pilote qui affiche le mot de passe.
+# Ici et non dans app.py pour qu'Alembic l'applique aussi : sans elle, un
+# -x db_url colle du tableau de bord echoue en affichant le mot de passe.
 def to_async_url(raw: str) -> str:
     if raw.startswith("postgresql://"):
         return raw.replace("postgresql://", "postgresql+asyncpg://", 1)
@@ -159,13 +154,9 @@ RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "hello@oubliepas.com")
 RESEND_FROM_NAME = os.getenv("RESEND_FROM_NAME", "OubliePas")
 RESEND_FROM_EMAIL_SUPPORT = os.getenv("RESEND_FROM_EMAIL_SUPPORT", "support@oubliepas.com")
 RESEND_FROM_EMAIL_REMINDER = os.getenv("RESEND_FROM_EMAIL_REMINDER", "reminder@oubliepas.com")
-# Supervision, pas dependance : absente, l'alerte de quota se tait au lieu
-# d'empecher le demarrage.
+# Supervision, pas dependance : absente, l'alerte se tait.
 OPERATOR_EMAIL = os.getenv("OPERATOR_EMAIL")
 
-# Les trois vont ensemble : une paire incomplete ne signe rien. Absentes, le
-# push se tait et le reste de l'application fonctionne — c'est un canal en plus,
-# jamais une condition de demarrage.
 VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY")
 VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY")
 VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", "mailto:rappels@oubliepas.com")

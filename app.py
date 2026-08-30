@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
+from api.middlewares.request_context import RequestContextMiddleware
 from api.middlewares.security_headers import SecurityHeadersMiddleware
 from api.middlewares.server_error import (
     INTERNAL_ERROR,
@@ -19,24 +20,22 @@ from core.config import CORS_ORIGIN_REGEX, CORS_ORIGINS, DEBUG, TRUSTED_PROXY_CO
 from core.database import dispose_engine
 from core.exceptions import AppException
 from core.migrations import run_migrations
+from core.observability import ContextFilter
 from core.rate_limit import client_ip, limiter
+
+logger = logging.getLogger(__name__)
 
 
 def configure_logging() -> None:
-    # Uvicorn ne configure que ses trois loggers a lui et laisse la racine sans
-    # handler. Tout ce que l'application journalise tombait donc dans le filet
-    # de secours de Python : sans niveau ni horodatage, et muet en dessous de
-    # WARNING. Une trace de 500 y passait pour une ligne anodine.
-    #
-    # stderr et non stdout : hors terminal, Python bufferise stdout par blocs et
-    # ne le vide qu'une fois 8 Ko accumules. Dans un conteneur, la trace du 500
-    # que l'on cherche reste alors dans le tampon pendant que la plateforme
-    # n'affiche rien. stderr, lui, est ligne a ligne, comme dans jobs/daily.py.
+    # stderr et non stdout : hors terminal, stdout est bufferise par blocs et
+    # la trace attend 8 Ko pendant que la plateforme n'affiche rien.
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        format="%(asctime)s %(levelname)s [%(request_id)s %(caller)s] %(name)s %(message)s",
         stream=sys.stderr,
     )
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(ContextFilter())
 
 
 configure_logging()
@@ -50,8 +49,7 @@ async def lifespan(app: FastAPI):
 
 
 def docs_urls(debug: bool) -> dict:
-    # Le schema decrit toute la surface de l'API pour un service qui n'a qu'un
-    # client, deja au courant. Rien ne compense de le publier.
+    # Un seul client, deja au courant : publier le schema n'apporte rien.
     if debug:
         return {"docs_url": "/docs", "redoc_url": "/redoc", "openapi_url": "/openapi.json"}
     return {"docs_url": None, "redoc_url": None, "openapi_url": None}
@@ -65,12 +63,13 @@ app = FastAPI(
 )
 
 app.state.limiter = limiter
-# L'ordre est inverse : le dernier ajoute enveloppe les precedents. Le
-# rattrapage des 500 doit donc etre ajoute en premier pour finir au plus
-# profond, sous les en-tetes de securite et sous le CORS.
+# L'ordre est inverse : le dernier ajoute enveloppe les precedents.
 app.add_middleware(ServerErrorEnvelopeMiddleware)
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+
+# Le plus a l'exterieur : le contexte doit exister avant toute journalisation.
+app.add_middleware(RequestContextMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -82,13 +81,36 @@ app.add_middleware(
 )
 
 
+# Le client rafraichit seul : journaliser chaque 401 noierait les incidents.
+QUIET_CODES = {"INVALID_ACCESS_TOKEN"}
+
+
+def _severity(exc: AppException) -> int:
+    if exc.code in QUIET_CODES:
+        return logging.DEBUG
+    if exc.status_code >= 500:
+        return logging.ERROR
+    if exc.status_code == 429:
+        return logging.WARNING
+    return logging.INFO
+
+
 @app.exception_handler(AppException)
 async def app_exception_handler(request: Request, exc: AppException):
+    logger.log(
+        _severity(exc),
+        "%s on %s %s -> %s",
+        exc.code,
+        request.method,
+        request.url.path,
+        exc.status_code,
+    )
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.to_dict()})
 
 
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    logger.warning("rate limit hit on %s %s", request.method, request.url.path)
     return JSONResponse(
         status_code=429,
         content={
@@ -102,14 +124,21 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
 
 @app.exception_handler(Exception)
 async def unhandled_handler(request: Request, exc: Exception):
-    # Dernier recours : ne couvre que ce qui echoue au-dessus du middleware,
-    # dans le CORS ou les en-tetes eux-memes. Sans en-tetes, mais au moins
-    # avec la meme enveloppe que le reste de l'API.
+    logger.exception("unhandled error above the envelope on %s %s", request.method, request.url.path)
+    # Ne couvre que ce qui echoue au-dessus du middleware : sans en-tetes,
+    # mais avec la meme enveloppe que le reste de l'API.
     return JSONResponse(status_code=500, content=INTERNAL_ERROR)
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_handler(request: Request, exc: RequestValidationError):
+    # Les noms de champs seulement : les valeurs portent mots de passe et codes.
+    logger.info(
+        "validation refused on %s %s: %s",
+        request.method,
+        request.url.path,
+        ", ".join(sorted({".".join(str(p) for p in e["loc"][1:]) for e in exc.errors()})),
+    )
     return JSONResponse(
         status_code=422,
         content={

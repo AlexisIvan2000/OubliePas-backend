@@ -19,9 +19,6 @@ def b64(raw: bytes) -> str:
 
 
 class Navigateur:
-    # Le destinataire tel qu'il existe vraiment : une paire que le navigateur
-    # garde pour lui, dont il ne publie que la moitie publique et un secret
-    # d'authentification de seize octets.
     def __init__(self):
         self.key = ec.generate_private_key(ec.SECP256R1())
         self.secret = os.urandom(16)
@@ -50,9 +47,8 @@ class Reponse:
 
 
 class Transport:
-    # Seul le reseau est feint. Le chiffrement et la signature VAPID tournent
-    # pour de vrai : c'est precisement ce que la fixture pushbox, qui remplace
-    # send en entier, ne pouvait pas verifier.
+    # Seul le reseau est feint : chiffrement et signature tournent pour de
+    # vrai, ce que la fixture pushbox ne pouvait pas verifier.
     def __init__(self, status_code=201):
         self.status_code = status_code
         self.url = None
@@ -81,9 +77,6 @@ def vapid(monkeypatch):
 
 class TestTheEncryptedPayload:
     async def test_the_device_can_read_what_we_sent_it(self, vapid):
-        # Le test qui manquait. Le defaut vivait ici : http_ece etait appele
-        # sans paire ephemere et levait avant toute connexion, donc en sept
-        # millisecondes et sans qu'aucun test ne passe par ce chemin.
         navigateur = Navigateur()
         transport = Transport()
 
@@ -99,8 +92,6 @@ class TestTheEncryptedPayload:
         }
 
     async def test_two_sends_never_reuse_the_same_ephemeral_key(self, vapid):
-        # Rejouer la meme paire pour deux messages rendrait le second dechiffrable
-        # a qui a garde le premier.
         navigateur = Navigateur()
         premier, second = Transport(), Transport()
 

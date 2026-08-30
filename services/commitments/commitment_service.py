@@ -1,4 +1,5 @@
 import calendar
+import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import NamedTuple
 from decimal import Decimal
@@ -49,6 +50,9 @@ def purge_on(deleted_at: datetime | None) -> date | None:
     return (deleted_at + timedelta(days=PURGE_AFTER_DAYS)).date()
 CENTS = Decimal("0.01")
 
+
+
+logger = logging.getLogger(__name__)
 
 class Settlement(NamedTuple):
     at: datetime | None
@@ -207,12 +211,6 @@ class CommitmentService:
         return self._commitment_response(updated, due.get(updated.id))
 
     async def set_status_many(self, user_id: str, ids: list, status: str) -> BatchStatusResult:
-        # Une boucle sur update() plutot qu'un UPDATE unique : le statut fait
-        # partie des champs qui replanifient, et seule cette voie passe par
-        # generator.resync. Sans elle, une pause par lot laisserait les
-        # echeances sur le calendrier alors que la meme pause ligne par ligne
-        # les retire. L'ordre est celui du client, donc celui de l'ecran : on
-        # peut expliquer lesquelles sont passees.
         changed, blocked = [], []
         for commitment_id in ids:
             commitment = await self.repo.get_by_id(commitment_id, user_id)
@@ -229,11 +227,13 @@ class CommitmentService:
 
     async def delete_many(self, user_id: str, ids: list) -> dict:
         removed = await self.repo.delete_many(user_id, ids)
+        logger.info("user %s moved %s commitment(s) to the trash", user_id, len(removed))
         return {"deleted": len(removed), "ids": [str(one) for one in removed]}
 
     async def delete(self, user_id: str, commitment_id) -> dict:
         await self._owned(user_id, commitment_id)
         removed = await self.repo.delete(commitment_id, user_id)
+        logger.info("user %s moved commitment %s to the trash", user_id, commitment_id)
         return {"deleted": len(removed), "ids": [str(one) for one in removed]}
 
     async def delete_all(
@@ -246,10 +246,18 @@ class CommitmentService:
         removed = await self.repo.delete_all(
             user_id, commitment_type=commitment_type, status=status
         )
+        logger.warning(
+            "user %s emptied %s (%s commitment(s) to the trash)",
+            user_id,
+            commitment_type or "every type",
+            len(removed),
+        )
         return {"deleted": len(removed), "ids": [str(one) for one in removed]}
 
     async def restore(self, user_id: str, ids: list) -> dict:
-        return {"restored": await self.repo.restore(user_id, ids)}
+        restored = await self.repo.restore(user_id, ids)
+        logger.info("user %s restored %s commitment(s) from the trash", user_id, restored)
+        return {"restored": restored}
 
     async def list_deleted(
         self, user_id: str, *, commitment_type: str | None = None
@@ -258,7 +266,11 @@ class CommitmentService:
         return [self._commitment_response(commitment, None) for commitment in commitments]
 
     async def purge_now(self, user_id: str, *, commitment_type: str | None = None) -> dict:
-        return {"deleted": await self.repo.purge_now(user_id, commitment_type=commitment_type)}
+        # Le seul effacement sans retour : apres lui, la corbeille ne peut plus
+        # rien rendre.
+        purged = await self.repo.purge_now(user_id, commitment_type=commitment_type)
+        logger.warning("user %s purged %s commitment(s) for good", user_id, purged)
+        return {"deleted": purged}
 
     async def list_occurrences(
         self,

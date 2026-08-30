@@ -20,17 +20,14 @@ from services.emailing import messages
 
 logger = logging.getLogger(__name__)
 
-# Douze heures : au-dela, un rappel du matin arriverait le lendemain, apres que
-# l'echeance a ete payee ou manquee. Le courriel, lui, reste dans la boite.
+# Au-dela, un rappel du matin arriverait apres l'echeance.
 TTL_SECONDS = 12 * 3600
-# Le jeton VAPID vaut pour toutes les adresses du meme service ; une journee
-# evite d'en signer un par abonnement sans allonger la fenetre de rejeu.
 TOKEN_LIFETIME_SECONDS = 24 * 3600
 GONE = (404, 410)
 
 
 def _b64(raw: str) -> bytes:
-    # Les cles du navigateur arrivent en base64 url-safe, souvent sans padding.
+    # Souvent sans padding cote navigateur.
     return base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
 
 
@@ -47,8 +44,8 @@ class PushSender:
     def _headers(self, endpoint: str, payload: bytes) -> dict:
         origin = urlsplit(endpoint)
         vapid = Vapid02.from_raw(VAPID_PRIVATE_KEY.encode("utf-8"))
-        # L'audience est l'origine du service de push, pas l'adresse complete :
-        # un jeton signe pour une adresse precise serait refuse par les autres.
+        # L'origine, pas l'adresse : un jeton signe pour une adresse precise
+        # serait refuse par les autres.
         signed = vapid.sign(
             {
                 "aud": f"{origin.scheme}://{origin.netloc}",
@@ -70,10 +67,8 @@ class PushSender:
             raise RuntimeError("VAPID keys are missing")
 
         payload = json.dumps({"title": title, "body": body, "url": url}).encode("utf-8")
-        # aes128gcm impose une paire ephemere par envoi : sa cle publique
-        # voyage dans l'en-tete du corps chiffre, et c'est elle que le
-        # navigateur combine a la sienne pour retrouver le secret partage.
-        # Sans elle http_ece refuse, avant meme d'ouvrir une connexion.
+        # Une paire ephemere par envoi, exigee par aes128gcm : sans elle
+        # http_ece leve avant meme d'ouvrir une connexion.
         encrypted = http_ece.encrypt(
             payload,
             salt=os.urandom(16),
@@ -88,9 +83,7 @@ class PushSender:
             headers=self._headers(subscription.endpoint, encrypted),
         )
         if response.status_code in GONE:
-            # Le service declare l'adresse morte : desinstallation, navigateur
-            # efface, permission retiree. Personne n'est la pour nous le dire
-            # autrement, et la garder ferait echouer chaque passage.
+            # Personne d'autre ne nous dira que l'adresse est morte.
             return "gone"
         response.raise_for_status()
         return "sent"
@@ -99,8 +92,7 @@ class PushSender:
         locale = messages.pick(locale)
         count = len(items)
         title = messages.text(locale, "push_title")
-        # Jamais le montant : une notification s'affiche sur un ecran verrouille,
-        # c'est-a-dire dans un lieu public.
+        # Jamais le montant : un ecran verrouille est un lieu public.
         if count == 1:
             body = messages.text(
                 locale, f"push_{kind}_one", title=str(items[0]["title"]),
