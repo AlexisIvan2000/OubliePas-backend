@@ -42,8 +42,15 @@ def zone_of(user) -> ZoneInfo:
     return zone_named(getattr(user, "timezone", None))
 
 
+def _now() -> datetime:
+    # L'unique lecture d'horloge du projet. Tout le reste en derive, ce qui rend
+    # une date gelable en un seul point pour les tests, et garantit qu'un meme
+    # passage ne voit pas deux instants differents.
+    return datetime.now(timezone.utc)
+
+
 def now_for(user) -> datetime:
-    return datetime.now(zone_of(user))
+    return _now().astimezone(zone_of(user))
 
 
 def date_at(moment: datetime, name: str | None) -> date:
@@ -58,7 +65,7 @@ def date_at(moment: datetime, name: str | None) -> date:
 
 def today_in(name: str | None) -> date:
     """Le jour dans ce fuseau, pour les boucles qui tiennent le nom sans la personne."""
-    return datetime.now(zone_named(name)).date()
+    return date_at(_now(), name)
 
 
 def today_for(user) -> date:
@@ -69,4 +76,4 @@ def today_for(user) -> date:
 def today_utc() -> date:
     # Ce qui n'appartient a personne : les purges, les journaux, le verrou du
     # cron. Tout calcul qu'un utilisateur verra passe par today_for.
-    return datetime.now(timezone.utc).date()
+    return _now().date()

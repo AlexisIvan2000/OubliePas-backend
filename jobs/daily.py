@@ -24,11 +24,28 @@ from services.pushing.push_sender import PushSender
 
 LOCK_KEY = 8142026
 
-# L'heure planifiee du passage. Elle sert a rejouer une date : le calcul de
-# chacun part d'un instant, et un instant sans heure n'existe pas. A midi
-# UTC il est 9 h a Moncton, 14 h a Paris, 21 h a Tokyo, et 2 h le lendemain
-# a UTC+14 — le seul fuseau ou le rappel arrive de nuit, et la veille du
-# jour que le serveur croit traiter.
+# L'heure planifiee du passage. Elle sert aussi a rejouer une date : le calcul
+# de chacun part d'un instant, et un instant sans heure n'existe pas.
+#
+# Ce que midi UTC donne, verifie :
+#
+#     Honolulu   UTC-10   02 h        <- nuit
+#     Vancouver  UTC-07   05 h
+#     Moncton    UTC-03   09 h
+#     Londres    UTC+01   13 h
+#     Paris      UTC+02   14 h
+#     Kolkata    UTC+05:30 17 h 30
+#     Tokyo      UTC+09   21 h
+#     Auckland   UTC+12   00 h, le lendemain    <- nuit
+#     Kiritimati UTC+14   02 h, le lendemain    <- nuit
+#
+# Le gros des Ameriques recoit le matin, l'Europe l'apres-midi, l'Asie le soir.
+# Deux bords recoivent de nuit, et non un seul : l'extreme est passe minuit — sa
+# date a deja tourne, ce que la selection par fuseau prend en compte — mais
+# Hawai aussi, a l'ouest, sans changement de date. Les deux sont acceptes : une
+# heure d'envoi unique ne peut pas convenir a tout le monde, et la deplacer ne
+# ferait que choisir d'autres perdants. Le jour ou cela comptera, c'est le
+# passage qui devra tourner plus souvent, pas cette constante qui devra bouger.
 CRON_HOUR = time(12, 0)
 
 # 80 % des 100 envois quotidiens du plan gratuit Resend. La marge de 20 %
