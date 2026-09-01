@@ -1,5 +1,7 @@
 import pytest
 
+from models.db.user_db import MAX_PUSH_SUBSCRIPTIONS_PER_USER
+
 pytestmark = pytest.mark.integration
 
 ENDPOINT = "https://fcm.googleapis.com/fcm/send/abc123"
@@ -295,3 +297,47 @@ class TestTheSwitch:
         body = client.get("/v1/auth/me", headers=headers).json()
         assert body["reminder_push_enabled"] is True
         assert body["reminder_email_enabled"] is False
+
+
+class TestHowManyDevicesAnAccountMayKeep:
+    def test_beyond_the_bound_the_oldest_makes_room(self, client, verified, db):
+        # Un compte pouvait enregistrer trente adresses par heure, sans fin, et
+        # le cron postait ensuite a chacune une fois par jour.
+        for index in range(MAX_PUSH_SUBSCRIPTIONS_PER_USER + 5):
+            assert subscribe(client, verified, endpoint=f"{ENDPOINT}-{index}").status_code == 201
+
+        rows = db("select endpoint from push_subscriptions")
+        assert len(rows) == MAX_PUSH_SUBSCRIPTIONS_PER_USER
+
+    def test_the_device_that_just_arrived_is_among_those_kept(self, client, verified, db):
+        for index in range(MAX_PUSH_SUBSCRIPTIONS_PER_USER + 5):
+            subscribe(client, verified, endpoint=f"{ENDPOINT}-{index}")
+
+        gardes = {row[0] for row in db("select endpoint from push_subscriptions")}
+        assert f"{ENDPOINT}-{MAX_PUSH_SUBSCRIPTIONS_PER_USER + 4}" in gardes
+
+    def test_the_same_device_coming_back_costs_no_place(self, client, verified, db):
+        # L'adresse est unique : un reabonnement met la ligne a jour, il n'en
+        # ajoute pas une seconde, et ne doit donc chasser personne.
+        for index in range(MAX_PUSH_SUBSCRIPTIONS_PER_USER):
+            subscribe(client, verified, endpoint=f"{ENDPOINT}-{index}")
+
+        for _ in range(5):
+            subscribe(client, verified, endpoint=f"{ENDPOINT}-0")
+
+        rows = db("select endpoint from push_subscriptions")
+        assert len(rows) == MAX_PUSH_SUBSCRIPTIONS_PER_USER
+        assert (f"{ENDPOINT}-0",) in [tuple(row) for row in rows]
+
+    def test_the_bound_is_counted_per_account(self, client, verified, other_token, db):
+        for index in range(MAX_PUSH_SUBSCRIPTIONS_PER_USER):
+            subscribe(client, verified, endpoint=f"{ENDPOINT}-{index}")
+
+        client.post(
+            "/v1/push/subscriptions",
+            json=subscription(endpoint=f"{ENDPOINT}-de-sophie"),
+            headers={"Authorization": f"Bearer {other_token}"},
+        )
+
+        rows = db("select endpoint from push_subscriptions")
+        assert len(rows) == MAX_PUSH_SUBSCRIPTIONS_PER_USER + 1

@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.db import PushSubscription
+from models.db.user_db import MAX_PUSH_SUBSCRIPTIONS_PER_USER
 
 
 class PushRepository:
@@ -62,7 +63,29 @@ class PushRepository:
         )
         result = await self.session.execute(statement)
         await self.session.flush()
-        return result.scalar_one()
+        saved = result.scalar_one()
+        await self.prune(user_id)
+        return saved
+
+    async def prune(self, user_id: str, keep: int = MAX_PUSH_SUBSCRIPTIONS_PER_USER) -> int:
+        # Le moins recemment vu part : c'est l'appareil dont personne ne
+        # s'est servi depuis le plus longtemps, et il se reabonnera seul a
+        # la prochaine visite. L'identifiant departage les egalites, sinon
+        # l'ordre serait celui que la base voudra bien rendre.
+        gardes = (
+            select(PushSubscription.id)
+            .where(PushSubscription.user_id == user_id)
+            .order_by(PushSubscription.last_seen_at.desc(), PushSubscription.id.desc())
+            .limit(keep)
+        )
+        result = await self.session.execute(
+            delete(PushSubscription).where(
+                PushSubscription.user_id == user_id,
+                PushSubscription.id.not_in(gardes),
+            )
+        )
+        await self.session.flush()
+        return result.rowcount
 
     async def remove(self, user_id: str, endpoint: str) -> int:
         result = await self.session.execute(

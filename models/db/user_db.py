@@ -22,8 +22,6 @@ LOCALES = ("fr", "en")
 DEFAULT_LOCALE = "fr"
 
 MAX_VERIFICATION_ATTEMPTS = 5
-# Un compteur par flux : echouer sur la reinitialisation ne doit ni bloquer la
-# confirmation d'adresse, ni la deverrouiller en demandant un autre code.
 VERIFICATION_KINDS = ("verification", "reset", "email_change")
 
 
@@ -152,6 +150,13 @@ class VerificationAttempt(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+
+
+# Un telephone, une tablette, deux ou trois navigateurs de bureau : les
+# appareils reels d'une personne tiennent largement dessous. Sans borne, un
+# compte pouvait enregistrer trente adresses par heure sans fin, et le cron
+# postait a chacune une fois par jour.
+MAX_PUSH_SUBSCRIPTIONS_PER_USER = 10
 
 
 class PushSubscription(Base):
