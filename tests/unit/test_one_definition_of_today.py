@@ -92,8 +92,8 @@ class TestWhatIsAllowedToUseTheServerClock:
         # un parametre optionnel serait un « aujourd'hui » de serveur qui
         # revient par la porte de derriere, sans qu'aucun appel ne change.
         for chemin, signature in (
-            ("services/notifications/reminder_service.py", "async def send_due(self, *, on_date: date)"),
-            ("services/notifications/weekly_digest.py", "async def send(self, *, on_date: date)"),
+            ("services/notifications/reminder_service.py", "async def send_due(self, *, at: datetime)"),
+            ("services/notifications/weekly_digest.py", "async def send(self, *, at: datetime)"),
             ("services/commitments/occurrence_generator.py", "async def sync(self, commitment: Commitment, *, today: date)"),
         ):
             source = (RACINE / chemin).read_text(encoding="utf-8")

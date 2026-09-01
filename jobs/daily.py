@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,13 @@ from services.notifications.weekly_digest import WeeklyDigestService
 from services.pushing.push_sender import PushSender
 
 LOCK_KEY = 8142026
+
+# L'heure planifiee du passage. Elle sert a rejouer une date : le calcul de
+# chacun part d'un instant, et un instant sans heure n'existe pas. A midi
+# UTC il est 9 h a Moncton, 14 h a Paris, 21 h a Tokyo, et 2 h le lendemain
+# a UTC+14 — le seul fuseau ou le rappel arrive de nuit, et la veille du
+# jour que le serveur croit traiter.
+CRON_HOUR = time(12, 0)
 
 # 80 % des 100 envois quotidiens du plan gratuit Resend. La marge de 20 %
 # couvre l'angle mort du compteur : les transactionnels (codes de verification,
@@ -52,7 +59,12 @@ async def alert_operator(reference: date, emails_sent: int) -> None:
 
 
 async def run_daily(session: AsyncSession, *, today: date | None = None) -> dict:
-    reference = today or today_utc()
+    moment = (
+        datetime.now(timezone.utc)
+        if today is None
+        else datetime.combine(today, CRON_HOUR, tzinfo=timezone.utc)
+    )
+    reference = moment.date()
     repo = CommitmentRepository(session)
 
     purged = await repo.purge_deleted(
@@ -70,14 +82,14 @@ async def run_daily(session: AsyncSession, *, today: date | None = None) -> dict
         EmailSender(),
         push_repo=PushRepository(session),
         push_sender=PushSender(),
-    ).send_due(on_date=reference)
+    ).send_due(at=moment)
 
     # Le recapitulatif n'a pas de planification propre : le passage quotidien
     # existe deja, il lui suffit de demander quel jour on est. Le rattrapage
     # d'un lundi manque se fait donc les jours suivants, jusqu'a dimanche.
     digest = await WeeklyDigestService(
         repo, AuthRepository(session), DigestRepository(session), EmailSender()
-    ).send(on_date=reference)
+    ).send(at=moment)
 
     # Le seuil se juge sur le total du passage : un lundi, le recapitulatif
     # part a tous les abonnes d'un coup et c'est ce pic qui approche du quota.

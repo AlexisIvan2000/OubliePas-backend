@@ -7,6 +7,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from models.db.commitments_db import MAX_REMINDER_DAYS, Commitment
 from repositories.commitment_repository import CommitmentRepository
 from services.commitments.occurrence_generator import OccurrenceGenerator
+from services.notifications.reminder_window import NOTICE, is_due
 
 pytestmark = pytest.mark.integration
 
@@ -364,8 +365,10 @@ OFFSETS = (0, 1, 2, 3, 4, 5, 6, 7, 8, 29, 30, 31)
 
 
 class TestNoticeSelection:
-    """L'ancienne voie filtrait en Python, la nouvelle en SQL. Meme lot de
-    depart, deux filtres : les identifiants retenus doivent coincider."""
+    """Deux etages, deux roles. Le SQL ratisse — large d'un jour de chaque cote,
+    parce que le jour d'une personne peut differer de celui du serveur. is_due
+    tranche ensuite avec la date de cette personne. Le SQL a le droit d'en
+    remonter trop ; il n'a jamais le droit d'en oublier."""
 
     @staticmethod
     async def _populate(repo, user_id):
@@ -383,36 +386,90 @@ class TestNoticeSelection:
                 await OccurrenceGenerator(repo).sync(commitment, today=TODAY)
 
     @staticmethod
-    async def _both_ways(repo, on_date):
-        rows = (await repo.session.execute(repo._notice_window(on_date))).all()
-        old = [
+    def _exactes(lignes, on_date):
+        return {
             occurrence.id
-            for occurrence, commitment in rows
-            if (occurrence.due_date - on_date).days <= commitment.reminder_days_before
-        ]
-        new = [occurrence.id for occurrence, _ in await repo.due_for_reminder(on_date)]
-        return old, new, len(rows)
+            for occurrence, commitment in lignes
+            if is_due(NOTICE, occurrence, commitment, on_date)
+        }
 
-    def test_both_ways_pick_the_same_rows(self, session_runner, user_id):
+    def test_the_query_never_forgets_a_row_the_predicate_would_keep(
+        self, session_runner, user_id
+    ):
+        # La propriete porteuse : ce que le SQL ecarte, personne ne le
+        # rattrapera. Une echeance perdue ici l'est pour de bon, dans tous les
+        # fuseaux a la fois.
         async def work(session):
             repo = CommitmentRepository(session)
             await self._populate(repo, user_id)
-            return await self._both_ways(repo, TODAY)
+            tout = (
+                await repo.session.execute(
+                    repo._unreminded(
+                        "notice",
+                        earliest=TODAY - timedelta(days=60),
+                        latest=TODAY + timedelta(days=60),
+                        channel="email",
+                    )
+                )
+            ).all()
+            remontees = {o.id for o, _ in await repo.due_for_reminder(TODAY)}
+            return self._exactes(tout, TODAY), remontees
 
-        old, new, fetched = session_runner(work)
+        attendues, remontees = session_runner(work)
 
-        assert sorted(map(str, old)) == sorted(map(str, new))
-        assert old, "le jeu de donnees doit selectionner quelque chose"
-        assert fetched > len(new), "le SQL doit remonter moins que la fenetre large"
+        assert attendues, "le jeu de donnees doit selectionner quelque chose"
+        assert attendues <= remontees, "le SQL a oublie une echeance que is_due garde"
 
-    def test_the_bounds_are_included(self, session_runner, user_id):
+    def test_and_the_same_holds_for_a_neighbour_time_zone(self, session_runner, user_id):
+        # Un compte a l'est du serveur est deja demain, un compte a l'ouest est
+        # encore hier : les deux doivent tenir dans ce que la requete remonte.
         async def work(session):
             repo = CommitmentRepository(session)
             await self._populate(repo, user_id)
-            picked = await repo.due_for_reminder(TODAY)
+            tout = (
+                await repo.session.execute(
+                    repo._unreminded(
+                        "notice",
+                        earliest=TODAY - timedelta(days=60),
+                        latest=TODAY + timedelta(days=60),
+                        channel="email",
+                    )
+                )
+            ).all()
+            remontees = {o.id for o, _ in await repo.due_for_reminder(TODAY)}
+            veille = self._exactes(tout, TODAY - timedelta(days=1))
+            lendemain = self._exactes(tout, TODAY + timedelta(days=1))
+            return veille, lendemain, remontees
+
+        veille, lendemain, remontees = session_runner(work)
+
+        assert veille <= remontees, "la veille d'un fuseau a l'ouest sort de la requete"
+        assert lendemain <= remontees, "le lendemain d'un fuseau a l'est sort de la requete"
+
+    def test_the_query_still_costs_less_than_the_whole_window(
+        self, session_runner, user_id
+    ):
+        # L'elargissement d'un jour ne doit pas annuler l'optimisation : sans
+        # elle, 87 % des lignes remontees etaient hydratees puis jetees.
+        async def work(session):
+            repo = CommitmentRepository(session)
+            await self._populate(repo, user_id)
+            largeur = len((await repo.session.execute(repo._notice_window(TODAY))).all())
+            return largeur, len(await repo.due_for_reminder(TODAY))
+
+        largeur, remontees = session_runner(work)
+
+        assert remontees < largeur
+
+    def test_the_predicate_includes_its_bound_and_stops_after(self, session_runner, user_id):
+        # C'est is_due qui porte desormais le delai propre a l'engagement.
+        async def work(session):
+            repo = CommitmentRepository(session)
+            await self._populate(repo, user_id)
             return sorted(
                 ((occurrence.due_date - TODAY).days, commitment.reminder_days_before)
-                for occurrence, commitment in picked
+                for occurrence, commitment in await repo.due_for_reminder(TODAY)
+                if is_due(NOTICE, occurrence, commitment, TODAY)
             )
 
         pairs = session_runner(work)
@@ -430,6 +487,7 @@ class TestNoticeSelection:
                 (occurrence.due_date - TODAY).days
                 for occurrence, commitment in await repo.due_for_reminder(TODAY)
                 if commitment.reminder_days_before == 0
+                and is_due(NOTICE, occurrence, commitment, TODAY)
             ]
 
         assert session_runner(work) == [0]

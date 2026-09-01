@@ -1,6 +1,6 @@
 import logging
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from repositories.auth_repository import AuthRepository
 from repositories.commitment_repository import CommitmentRepository
@@ -29,8 +29,8 @@ class WeeklyDigestService:
         self.digest_repo = digest_repo
         self.sender = sender
 
-    async def send(self, *, on_date: date) -> dict:
-        reference = on_date
+    async def send(self, *, at: datetime) -> dict:
+        reference = at.date()
         report = {"weekly_sent": 0, "weekly_skipped": 0, "weekly_failed": 0}
 
         start = week_start(reference)

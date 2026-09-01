@@ -46,6 +46,16 @@ def now_for(user) -> datetime:
     return datetime.now(zone_of(user))
 
 
+def date_at(moment: datetime, name: str | None) -> date:
+    """Le jour qu'il est dans ce fuseau a cet instant.
+
+    Un instant est la verite, une date n'en est qu'une projection : le cron
+    part d'un moment unique et chacun le lit dans son propre calendrier. Sans
+    cela, une passe rejouee pour une date passee relirait l'horloge du jour.
+    """
+    return moment.astimezone(zone_named(name)).date()
+
+
 def today_in(name: str | None) -> date:
     """Le jour dans ce fuseau, pour les boucles qui tiennent le nom sans la personne."""
     return datetime.now(zone_named(name)).date()

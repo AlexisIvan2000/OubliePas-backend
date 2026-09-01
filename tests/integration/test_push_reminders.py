@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -6,6 +6,7 @@ from repositories.auth_repository import AuthRepository
 from repositories.commitment_repository import CommitmentRepository
 from repositories.push_repository import PushRepository
 from services.emailing.email_sender import EmailSender
+from jobs.daily import CRON_HOUR
 from services.notifications.reminder_service import ReminderService
 from services.pushing.push_sender import PushSender
 
@@ -52,7 +53,7 @@ def passage(session_runner, monkeypatch):
                 EmailSender(),
                 push_repo=PushRepository(session),
                 push_sender=PushSender(),
-            ).send_due(on_date=on_date or date.today())
+            ).send_due(at=datetime.combine(on_date or date.today(), CRON_HOUR, tzinfo=timezone.utc))
 
         return session_runner(work)
 

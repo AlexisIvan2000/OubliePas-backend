@@ -1,10 +1,12 @@
 import logging
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime
 
 from repositories.auth_repository import AuthRepository
 from repositories.commitment_repository import CommitmentRepository
+from core.clock import date_at
 from services.commitments.action_window import TRIAL, action_window
+from services.notifications.reminder_window import is_due
 from core.config import push_configured
 from repositories.push_repository import PushRepository
 from services.emailing.email_sender import EmailSender
@@ -98,12 +100,25 @@ class ReminderService:
             locale=user.locale,
         )
 
+    def _due_today(self, kind: str, entries: list[tuple], today: date) -> list[tuple]:
+        gardees = []
+        for entry in entries:
+            occurrence, commitment = entry[0], entry[1]
+            if not is_due(kind, occurrence, commitment, today):
+                continue
+            # Pour une action, la date decide aussi de l'ouverture de la
+            # fenetre, pas seulement de l'intervalle de selection.
+            if kind == ACTION and not entry[2].is_open(today):
+                continue
+            gardees.append(entry)
+        return gardees
+
     async def _dispatch(
         self,
         kind: str,
         entries: list[tuple],
         *,
-        reference: date,
+        at: datetime,
         counter: str,
         report: dict,
         emailed: set,
@@ -126,11 +141,20 @@ class ReminderService:
                 report["skipped"] += len(rows)
                 continue
 
+            # La requete a ratisse large, d'un jour de chaque cote, pour ne
+            # perdre personne. La date de cette personne tranche maintenant.
+            # Ce qu'elle ecarte n'est pas perdu : les bornes sont un
+            # intervalle, le passage suivant le reprendra.
+            today = date_at(at, user.timezone)
+            rows = self._due_today(kind, rows, today)
+            if not rows:
+                continue
+
             try:
                 if channel == PUSH:
-                    await self._deliver_push(kind, user, rows, reference)
+                    await self._deliver_push(kind, user, rows, today)
                 else:
-                    await self._deliver(kind, user, rows, reference)
+                    await self._deliver(kind, user, rows, today)
             except Exception:
                 logger.exception(
                     "reminder '%s' failed on %s for user %s (%d occurrence(s) left for the next run)",
@@ -158,10 +182,13 @@ class ReminderService:
                 report[counter] += len(rows)
 
     async def _open_actions(self, reference: date, channel: str = EMAIL) -> list[tuple]:
+        # L'ouverture de la fenetre n'est plus jugee ici : elle depend du jour
+        # de la personne, que _dispatch connait et pas nous. On ne garde que
+        # les candidats dont une fenetre existe.
         actionable = []
         for occurrence, commitment in await self.repo.action_candidates(reference, channel=channel):
             window = action_window(commitment, occurrence.due_date, reference=reference)
-            if window is not None and window.is_open(reference):
+            if window is not None:
                 actionable.append((occurrence, commitment, window))
         return actionable
 
@@ -172,8 +199,10 @@ class ReminderService:
             return [EMAIL]
         return [EMAIL, PUSH]
 
-    async def send_due(self, *, on_date: date) -> dict:
-        reference = on_date
+    async def send_due(self, *, at: datetime) -> dict:
+        # La date du serveur ancre la requete ; celle de chacun tranche plus
+        # bas. Les deux sortent du meme instant.
+        reference = at.date()
         # emails_sent est un plancher, pas la facture : le quota Resend compte
         # aussi les transactionnels (verification, mot de passe, changement
         # d'adresse), qui ne passent pas par ici. Le tableau de bord Resend fait
@@ -197,7 +226,7 @@ class ReminderService:
             await self._dispatch(
                 ACTION,
                 await self._open_actions(reference, channel),
-                reference=reference,
+                at=at,
                 counter="actions",
                 report=report,
                 emailed=emailed,
@@ -206,7 +235,7 @@ class ReminderService:
             await self._dispatch(
                 NOTICE,
                 await self.repo.due_for_reminder(reference, channel=channel),
-                reference=reference,
+                at=at,
                 counter="occurrences",
                 report=report,
                 emailed=emailed,
@@ -215,7 +244,7 @@ class ReminderService:
             await self._dispatch(
                 OVERDUE,
                 await self.repo.overdue_for_reminder(reference, channel=channel),
-                reference=reference,
+                at=at,
                 counter="overdue",
                 report=report,
                 emailed=emailed,

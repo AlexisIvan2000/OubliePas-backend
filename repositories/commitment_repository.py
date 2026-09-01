@@ -19,6 +19,13 @@ from models.db.commitments_db import (
     OccurrenceReminder,
 )
 from models.db.user_db import User
+from services.notifications.reminder_window import (
+    ACTION,
+    NOTICE,
+    OVERDUE,
+    TIMEZONE_SPREAD_DAYS,
+    query_bounds,
+)
 
 
 class DueDates(NamedTuple):
@@ -460,20 +467,21 @@ class CommitmentRepository:
         # La borne large sert l'index sur (due_date, status) ; la seconde applique
         # le delai propre a chaque engagement. Sans elle, 87 % des lignes remontees
         # etaient hydratees en objets puis jetees.
-        return self._unreminded(
-            "notice",
-            earliest=on_date,
-            latest=on_date + timedelta(days=MAX_REMINDER_DAYS),
-            channel=channel,
-        )
+        earliest, latest = query_bounds(NOTICE, on_date)
+        return self._unreminded("notice", earliest=earliest, latest=latest, channel=channel)
 
     async def due_for_reminder(
         self, on_date: date, *, channel: str = DEFAULT_REMINDER_CHANNEL
     ) -> list[tuple[CommitmentOccurrence, Commitment]]:
+        # Le delai de l'engagement, elargi lui aussi : sinon un compte a l'est
+        # du serveur serait ecarte avant que sa propre date ait pu decider, et
+        # is_due n'aurait plus rien a trancher.
         result = await self.session.execute(
             self._notice_window(on_date, channel).where(
                 CommitmentOccurrence.due_date
-                <= on_date + Commitment.reminder_days_before
+                <= on_date
+                + timedelta(days=TIMEZONE_SPREAD_DAYS)
+                + Commitment.reminder_days_before
             )
         )
         return list(result.all())
@@ -481,13 +489,9 @@ class CommitmentRepository:
     async def overdue_for_reminder(
         self, on_date: date, *, channel: str = DEFAULT_REMINDER_CHANNEL
     ) -> list[tuple[CommitmentOccurrence, Commitment]]:
+        earliest, latest = query_bounds(OVERDUE, on_date)
         result = await self.session.execute(
-            self._unreminded(
-                "overdue",
-                earliest=on_date - timedelta(days=OVERDUE_REMINDER_WINDOW_DAYS),
-                latest=on_date - timedelta(days=OVERDUE_REMINDER_DAYS),
-                channel=channel,
-            )
+            self._unreminded("overdue", earliest=earliest, latest=latest, channel=channel)
         )
         return [(occurrence, commitment) for occurrence, commitment in result.all()]
 
@@ -497,9 +501,8 @@ class CommitmentRepository:
         result = await self.session.execute(
             self._unreminded(
                 "action_required",
-                earliest=on_date,
-                latest=on_date
-                + timedelta(days=MAX_CANCELLATION_NOTICE_DAYS + MAX_REMINDER_DAYS),
+                earliest=query_bounds(ACTION, on_date)[0],
+                latest=query_bounds(ACTION, on_date)[1],
                 channel=channel,
             ).where(
                 or_(

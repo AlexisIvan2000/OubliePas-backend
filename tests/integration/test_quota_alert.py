@@ -26,7 +26,7 @@ def run_job(session_runner, monkeypatch):
     # Atteindre 81 envois reels demanderait 81 comptes : on remplace le passage
     # des rappels par son resultat, ce que l'alerte est seule a lire.
     def go(emails_sent, operator=OPERATEUR, failed=0):
-        async def send_due(self, *, on_date=None):
+        async def send_due(self, *, at=None):
             return {**VIDE, "emails_sent": emails_sent, "failed": failed}
 
         monkeypatch.setattr(ReminderService, "send_due", send_due)
