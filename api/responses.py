@@ -24,5 +24,6 @@ def user_response(user: User) -> UserResponse:
         reminder_weekly_enabled=user.reminder_weekly_enabled,
         default_reminder_days=user.default_reminder_days,
         locale=user.locale,
+        timezone=user.timezone,
         commitment_limit=MAX_COMMITMENTS_PER_TYPE,
     )

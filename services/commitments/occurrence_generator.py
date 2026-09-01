@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from models.db.commitments_db import Commitment
 from repositories.commitment_repository import CommitmentRepository
+from core.clock import today_utc
 
 MONTHS_BY_FREQUENCY = {"monthly": 1, "quarterly": 3, "yearly": 12}
 GENERATION_HORIZON_DAYS = 90
@@ -21,8 +22,9 @@ def horizon_days(frequency: str) -> int:
     )
 
 
-def today_utc() -> date:
-    return datetime.now(timezone.utc).date()
+# Reexporte : la definition vit dans core.clock, aux cotes de today_for, pour
+# que les deux notions de « aujourd'hui » se lisent au meme endroit.
+__all__ = ["today_utc"]
 
 
 def add_months(anchor: date, months: int) -> date:

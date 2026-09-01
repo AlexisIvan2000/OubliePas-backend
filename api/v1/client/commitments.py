@@ -22,8 +22,8 @@ from models.schemas.commitment_schema import (
     RestoredCount,
     RestoreRequest,
 )
+from core.clock import today_for
 from services.commitments.commitment_service import month_bounds
-from services.commitments.occurrence_generator import today_utc
 
 router = APIRouter(prefix="/commitments", tags=["commitments"])
 
@@ -46,7 +46,7 @@ async def list_occurrences(
     end: date | None = Query(default=None),
     status: OccurrenceStatus | None = Query(default=None),
 ):
-    default_start, default_end = month_bounds(today_utc())
+    default_start, default_end = month_bounds(today_for(user))
     return await service.list_occurrences(
         str(user.id),
         start=start or default_start,

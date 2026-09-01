@@ -255,3 +255,17 @@ class TestEveryPreferenceComesBack:
     def test_the_list_is_not_empty(self):
         # Une regex qui ne trouve plus rien ferait passer la garde a vide.
         assert len(self.PREFERENCES) >= 5
+
+    # Le prefixe « reminder_ » ne couvrait que les interrupteurs. Un champ
+    # ajoute au schema et a la table, mais pas au constructeur de reponse, se
+    # lit toujours a sa valeur par defaut, quel que soit son nom : la garde
+    # regarde donc tout ce qu'on peut ecrire.
+    ECRIVABLES = sorted(UpdateProfile.model_fields)
+
+    @pytest.mark.parametrize("champ", ECRIVABLES)
+    def test_every_writable_field_is_rendered(self, client, token, champ):
+        rendu = client.get("/v1/users/me", headers=auth(token)).json()
+
+        assert champ in rendu, (
+            f"{champ} s'ecrit mais ne se relit pas : api/responses.py l'a oublie"
+        )

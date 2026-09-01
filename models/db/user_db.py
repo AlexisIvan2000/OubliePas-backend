@@ -17,6 +17,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models.db.base import Base
 from models.db.commitments_db import DEFAULT_REMINDER_DAYS, MAX_REMINDER_DAYS
+from core.clock import DEFAULT_TIMEZONE, MAX_TIMEZONE_LENGTH
 
 LOCALES = ("fr", "en")
 DEFAULT_LOCALE = "fr"
@@ -95,6 +96,15 @@ class User(Base):
         String(5),
         default=DEFAULT_LOCALE,
         server_default=sa.text(f"'{DEFAULT_LOCALE}'"),
+    )
+    # Pas de CHECK ici, contrairement a locale : la liste IANA compte des
+    # centaines de noms et change avec la base tz. Une contrainte figee dans
+    # une migration refuserait un jour un fuseau parfaitement valide. C'est le
+    # schema d'entree qui valide, contre la base reellement installee.
+    timezone: Mapped[str] = mapped_column(
+        String(MAX_TIMEZONE_LENGTH),
+        default=DEFAULT_TIMEZONE,
+        server_default=sa.text(f"'{DEFAULT_TIMEZONE}'"),
     )
     google_sub: Mapped[str | None] = mapped_column(String(255), unique=True, index=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

@@ -100,6 +100,38 @@ class TestTheServiceWorker:
         assert manifest["start_url"] == "/"
         assert manifest["display"] == "standalone"
 
+    def test_it_handles_fetch_and_is_therefore_installable(self, site):
+        # Chrome ne propose l'installation qu'a un worker qui declare un
+        # gestionnaire fetch. Le perdre ne casse aucun ecran : l'app cesse
+        # d'etre installable, et rien ne le dit nulle part.
+        assert 'addEventListener("fetch"' in site.get("/sw.js").text
+
+    def test_the_script_is_revalidated_at_every_check(self, site):
+        # Un sw.js fige par un cache long, c'est un correctif qui met un jour a
+        # arriver : le navigateur ne verrait le worker neuf qu'a l'expiration,
+        # et le rechargement unique promis ailleurs ne tiendrait plus.
+        controle = site.get("/sw.js").headers.get("cache-control", "")
+
+        assert "max-age=0" in controle or "no-cache" in controle
+
+
+class TestTheInstalledIcon:
+    def test_the_manifest_carries_a_maskable_icon(self, site):
+        manifest = json.loads(site.get("/manifest.webmanifest").text)
+
+        maskable = [i for i in manifest["icons"] if i.get("purpose") == "maskable"]
+        assert maskable
+
+    def test_and_that_icon_is_actually_served(self, site):
+        # Une icone declaree et absente ne se voit qu'une fois l'app posee
+        # sur un ecran d'accueil.
+        manifest = json.loads(site.get("/manifest.webmanifest").text)
+
+        for icon in manifest["icons"]:
+            response = site.get(icon["src"])
+            assert response.status_code == 200, icon["src"]
+            assert "image/png" in response.headers["content-type"]
+
 
 class TestTheBundle:
     def test_it_calls_the_deployed_api_and_not_a_laptop(self, site, api):

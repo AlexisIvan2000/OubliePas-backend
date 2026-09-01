@@ -103,13 +103,6 @@ def get_commitment_repository(session: SessionDep) -> CommitmentRepository:
 CommitmentRepoDep = Annotated[CommitmentRepository, Depends(get_commitment_repository)]
 
 
-def get_commitment_service(repo: CommitmentRepoDep) -> CommitmentService:
-    return CommitmentService(repo, OccurrenceGenerator(repo))
-
-
-CommitmentServiceDep = Annotated[CommitmentService, Depends(get_commitment_service)]
-
-
 async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     auth_repo: AuthRepoDep,
@@ -136,6 +129,16 @@ async def get_current_user(
 
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+
+def get_commitment_service(repo: CommitmentRepoDep, user: CurrentUserDep) -> CommitmentService:
+    # Le fuseau entre ici et nulle part ailleurs : toutes les routes de ce
+    # service exigent deja un compte, et FastAPI ne resout l'utilisateur
+    # qu'une fois par requete.
+    return CommitmentService(repo, OccurrenceGenerator(repo), timezone=user.timezone)
+
+
+CommitmentServiceDep = Annotated[CommitmentService, Depends(get_commitment_service)]
 
 
 async def require_admin(user: CurrentUserDep) -> User:

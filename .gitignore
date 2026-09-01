@@ -53,3 +53,5 @@ public_key.pem
 # qu'un mémo local des valeurs attendues)
 railway.json
 railway.cron.json
+
+docs/

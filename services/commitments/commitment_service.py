@@ -35,7 +35,8 @@ from models.schemas.commitment_schema import (
     OccurrenceUpdate,
 )
 from repositories.commitment_repository import CommitmentRepository, DueDates
-from services.commitments.occurrence_generator import OccurrenceGenerator, today_utc
+from core.clock import DEFAULT_TIMEZONE, today_for
+from services.commitments.occurrence_generator import OccurrenceGenerator
 
 RESCHEDULING_FIELDS = frozenset({"amount", "frequency", "starts_on", "ends_on", "status"})
 CLEARABLE_FIELDS = frozenset(
@@ -82,9 +83,23 @@ def month_bounds(reference: date) -> tuple[date, date]:
 
 
 class CommitmentService:
-    def __init__(self, repo: CommitmentRepository, generator: OccurrenceGenerator):
+    def __init__(
+        self,
+        repo: CommitmentRepository,
+        generator: OccurrenceGenerator,
+        *,
+        timezone: str = DEFAULT_TIMEZONE,
+    ):
         self.repo = repo
         self.generator = generator
+        # Le fuseau est lie a la construction, une fois par requete, plutot
+        # que passe a huit methodes. Le service n'a alors qu'une seule
+        # definition de « aujourd'hui », et c'est celle de la personne qui
+        # regarde l'ecran — pas celle du serveur.
+        self.timezone = timezone
+
+    def _today(self) -> date:
+        return today_for(self)
 
     def _occurrence_response(
         self, occurrence: CommitmentOccurrence, today: date
@@ -129,7 +144,7 @@ class CommitmentService:
         default_reminder_days: int = DEFAULT_REMINDER_DAYS,
     ) -> CommitmentResponse:
         await self._guard_limit(user_id, payload.type)
-        today = today_utc()
+        today = self._today()
         fields = payload.model_dump()
         if fields["reminder_days_before"] is None:
             fields["reminder_days_before"] = default_reminder_days
@@ -167,7 +182,7 @@ class CommitmentService:
         commitments = await self.repo.list_for_user(
             user_id, commitment_type=commitment_type, status=status
         )
-        due = await self.repo.due_dates(user_id, today_utc())
+        due = await self.repo.due_dates(user_id, self._today())
         return [
             self._commitment_response(commitment, due.get(commitment.id))
             for commitment in commitments
@@ -175,7 +190,7 @@ class CommitmentService:
 
     async def get(self, user_id: str, commitment_id) -> CommitmentResponse:
         commitment = await self._owned(user_id, commitment_id)
-        due = await self.repo.due_dates(user_id, today_utc())
+        due = await self.repo.due_dates(user_id, self._today())
         return self._commitment_response(commitment, due.get(commitment.id))
 
     async def update(
@@ -202,7 +217,7 @@ class CommitmentService:
 
         await self._guard_entry(user_id, commitment, changes)
 
-        today = today_utc()
+        today = self._today()
         updated = await self.repo.update(commitment_id, user_id, changes)
         if RESCHEDULING_FIELDS & changes.keys():
             await self.generator.resync(updated, today=today)
@@ -316,14 +331,14 @@ class CommitmentService:
                 f"The range must not exceed {MAX_RANGE_DAYS} days"
             )
 
-        today = today_utc()
+        today = self._today()
         occurrences = await self.repo.list_occurrences(
             user_id, start=start, end=end, status=status
         )
         return [self._occurrence_response(occurrence, today) for occurrence in occurrences]
 
     async def list_late(self, user_id: str) -> list[OccurrenceResponse]:
-        today = today_utc()
+        today = self._today()
         occurrences = await self.repo.list_late(user_id, today, limit=MAX_LATE_ROWS)
         return [self._occurrence_response(occurrence, today) for occurrence in occurrences]
 
@@ -338,7 +353,7 @@ class CommitmentService:
         if occurrence is None:
             raise OccurrenceNotFound()
 
-        today = today_utc()
+        today = self._today()
         status = changes.get("status", occurrence.status)
         settlement = settle(
             occurrence,
@@ -357,7 +372,7 @@ class CommitmentService:
         return self._occurrence_response(updated, today)
 
     async def summary(self, user_id: str, currency: str) -> DashboardSummary:
-        today = today_utc()
+        today = self._today()
         start, end = month_bounds(today)
 
         by_type = await self.repo.totals_by_type(user_id, start=start, end=end)

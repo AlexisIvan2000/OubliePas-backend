@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from core.clock import MAX_TIMEZONE_LENGTH, is_known_timezone
 from core.validators import normalize_currency
 from models.db.commitments_db import MAX_REMINDER_DAYS
 
@@ -40,6 +41,16 @@ class UpdateProfile(BaseModel):
     reminder_weekly_enabled: bool | None = None
     default_reminder_days: int | None = Field(default=None, ge=0, le=MAX_REMINDER_DAYS)
     locale: Literal["fr", "en"] | None = None
+    timezone: str | None = Field(default=None, min_length=1, max_length=MAX_TIMEZONE_LENGTH)
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str | None) -> str | None:
+        # Contre la base tz reellement installee, jamais contre une liste
+        # recopiee : c'est elle qui decidera du jour de cette personne.
+        if value is None or is_known_timezone(value):
+            return value
+        raise ValueError("Unknown time zone")
 
     @field_validator("currency")
     @classmethod
