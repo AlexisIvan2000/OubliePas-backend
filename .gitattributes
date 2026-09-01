@@ -1,0 +1,25 @@
+# Un depot, une fin de ligne.
+#
+# Le depot stockait deja du LF partout, par core.autocrlf. Un seul fichier y a
+# echappe : une insertion malformee y avait laisse un \r\r\n, et l'heuristique
+# « text=auto » cesse de normaliser des qu'elle voit un CR isole. Le fichier
+# est parti en CRLF pendant que ses voisins restaient en LF, et sa ligne
+# modifiee en a affiche cent quatre.
+#
+# eol=lf ne demande pas l'avis de l'heuristique et l'emporte sur core.autocrlf,
+# quel que soit le poste : ce que le depot garde ne depend plus ni de la machine
+# qui commite, ni d'un octet egare au milieu d'un fichier.
+* text=auto eol=lf
+
+# Ce qu'il ne faut jamais convertir, le jour ou le depot en recevra.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+*.gz binary
