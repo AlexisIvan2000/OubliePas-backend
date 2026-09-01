@@ -120,6 +120,44 @@ class TestSubscribe:
         assert client.post("/v1/push/subscriptions", json=subscription()).status_code == 401
 
 
+class TestAnAddressWeWillNeverCall:
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "https://169.254.169.254/latest/meta-data/",
+            "https://redis.railway.internal/",
+            "https://fcm.googleapis.com:6379/",
+            "http://fcm.googleapis.com/fcm/send/x",
+            "https://exemple.test/collecteur",
+            "https://fcm.googleapis.com@redis.railway.internal/",
+        ],
+    )
+    def test_it_is_refused_before_reaching_the_table(self, client, verified, db, endpoint):
+        # Sans ce refus, /push/test faisait poster le serveur a l'adresse
+        # donnee, et l'etat de la reponse revenait a l'appelant : de quoi
+        # sonder un reseau prive depuis un compte ordinaire.
+        response = subscribe(client, verified, endpoint=endpoint)
+
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "PUSH_ENDPOINT_REFUSED"
+        assert db("select id from push_subscriptions") == []
+
+    def test_the_refusal_names_the_host_and_never_the_address(self, client, verified, caplog):
+        import logging
+
+        endpoint = "https://exemple.test/collecteur?jeton=secret-de-la-victime"
+
+        with caplog.at_level(logging.WARNING):
+            subscribe(client, verified, endpoint=endpoint)
+
+        journal = " ".join(record.getMessage() for record in caplog.records)
+        assert "exemple.test" in journal
+        assert "secret-de-la-victime" not in journal
+
+    def test_a_real_push_service_still_goes_through(self, client, verified):
+        assert subscribe(client, verified).status_code == 201
+
+
 class TestUnsubscribe:
     def test_it_removes_the_line(self, client, verified, db):
         subscribe(client, verified)

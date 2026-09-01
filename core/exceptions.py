@@ -279,6 +279,12 @@ class PushNotConfigured(AppException):
     message = "Push notifications are not available on this server"
 
 
+class PushEndpointRefused(AppException):
+    status_code = 400
+    code = "PUSH_ENDPOINT_REFUSED"
+    message = "This push address does not belong to a known push service"
+
+
 class PushSubscriptionGone(AppException):
     status_code = 410
     code = "PUSH_SUBSCRIPTION_GONE"

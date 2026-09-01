@@ -1,8 +1,14 @@
+import logging
+
 from fastapi import APIRouter, Request, status
 
 from api.dependencies import CurrentUserDep, PushRepoDep, PushSenderDep
 from core.config import VAPID_PUBLIC_KEY, push_configured
-from core.exceptions import PushNotConfigured, PushSubscriptionGone
+from core.exceptions import (
+    PushEndpointRefused,
+    PushNotConfigured,
+    PushSubscriptionGone,
+)
 from core.rate_limit import READ_LIMIT, limiter
 from models.schemas.auth_schema import MessageResponse
 from models.schemas.push_schema import (
@@ -12,6 +18,9 @@ from models.schemas.push_schema import (
     PushTest,
     PushUnsubscribe,
 )
+from services.pushing.endpoint_policy import refusal_reason, refused_host
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/push", tags=["push"])
 
@@ -33,6 +42,18 @@ async def public_key(request: Request, user: CurrentUserDep):
 async def subscribe(
     request: Request, payload: PushSubscriptionIn, user: CurrentUserDep, repo: PushRepoDep
 ):
+    motif = refusal_reason(payload.endpoint)
+    if motif is not None:
+        # L'hote seul, jamais l'adresse : elle vaut porteur d'autorite, et
+        # ce journal-ci est la piste d'un compte qui sonde le reseau interne.
+        logger.warning(
+            "user %s offered a push address we refuse (%s, host %s)",
+            user.id,
+            motif,
+            refused_host(payload.endpoint),
+        )
+        raise PushEndpointRefused()
+
     saved = await repo.save(
         str(user.id),
         endpoint=payload.endpoint,

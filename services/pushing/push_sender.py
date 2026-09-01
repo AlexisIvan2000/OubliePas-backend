@@ -17,6 +17,7 @@ from core.config import (
     push_configured,
 )
 from services.emailing import messages
+from services.pushing.endpoint_policy import refusal_reason, refused_host
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,21 @@ class PushSender:
         """Rend 'sent', 'gone' quand l'abonnement est mort, ou leve."""
         if not push_configured():
             raise RuntimeError("VAPID keys are missing")
+
+        # Deuxieme verrou, pour les lignes ecrites avant la liste blanche et
+        # pour le cron, qui lit la table sans repasser par la route. Rendue
+        # morte plutot que levee : une adresse qu'on ne composera jamais est
+        # aussi inutile qu'une adresse que le service declare disparue, et
+        # l'appelant l'efface deja dans ce cas. Lever la garderait pour
+        # toujours et la ferait resonner a chaque passage.
+        motif = refusal_reason(subscription.endpoint)
+        if motif is not None:
+            logger.warning(
+                "refusing to post to a stored push address (%s, host %s)",
+                motif,
+                refused_host(subscription.endpoint),
+            )
+            return "gone"
 
         payload = json.dumps({"title": title, "body": body, "url": url}).encode("utf-8")
         # Une paire ephemere par envoi, exigee par aes128gcm : sans elle

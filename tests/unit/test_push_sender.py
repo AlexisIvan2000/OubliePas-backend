@@ -144,3 +144,49 @@ class TestWithoutAPair:
             await PushSender(transport).send(Navigateur(), title="a", body="b", url="c")
 
         assert transport.content is None
+
+
+class TestAnAddressStoredBeforeTheAllowlist:
+    # Le cron lit la table sans repasser par la route : sans ce second verrou,
+    # une ligne ecrite avant la liste blanche continuerait a faire poster le
+    # serveur ou elle veut, une fois par jour, pour toujours.
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "https://169.254.169.254/latest/meta-data/",
+            "https://redis.railway.internal/",
+            "http://fcm.googleapis.com/fcm/send/x",
+            "https://exemple.test/collecteur",
+        ],
+    )
+    async def test_it_is_reported_dead_without_a_single_connection(self, vapid, endpoint):
+        navigateur = Navigateur()
+        navigateur.endpoint = endpoint
+        transport = Transport()
+
+        resultat = await PushSender(transport).send(
+            navigateur, title="a", body="b", url="c"
+        )
+
+        # « gone » et non une levee : l'appelant efface deja sur ce mot, donc la
+        # ligne s'en va au lieu de resonner a chaque passage.
+        assert resultat == "gone"
+        assert transport.url is None
+        assert transport.content is None
+
+    async def test_the_reason_and_the_host_are_logged_but_never_the_address(
+        self, vapid, caplog
+    ):
+        import logging
+
+        navigateur = Navigateur()
+        navigateur.endpoint = "https://exemple.test/collecteur?jeton=secret-de-la-victime"
+
+        with caplog.at_level(logging.WARNING):
+            await PushSender(Transport()).send(navigateur, title="a", body="b", url="c")
+
+        journal = " ".join(record.getMessage() for record in caplog.records)
+        assert "exemple.test" in journal
+        assert "not-allowed" in journal
+        assert "secret-de-la-victime" not in journal

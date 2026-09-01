@@ -4,7 +4,7 @@ import pytest
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from py_vapid import Vapid01
 
-from core.config import check_vapid_keys
+from core.config import check_vapid_keys, clean_secret
 
 SUBJECT = "mailto:rappels@oubliepas.com"
 
@@ -91,3 +91,33 @@ class TestAcceptedPair:
         public, private = pair()
         with pytest.raises(RuntimeError, match="VAPID_SUBJECT"):
             check_vapid_keys(public, private, subject)
+
+
+class TestWhatTheCheckAcceptsTheSignatureCanRead:
+    # L'invariant : le controle de demarrage rognait avant de lire, la signature
+    # non. Une cle collee depuis un tableau de bord avec un retour a la ligne
+    # passait donc le controle et echouait au premier envoi — la panne meme que
+    # ce controle existe pour rendre impossible.
+
+    @pytest.mark.parametrize("bruit", ["\n", " ", "\r\n", "  \n"])
+    def test_a_key_pasted_with_a_line_break_survives_both(self, bruit):
+        import services.pushing.push_sender as expediteur
+        from services.pushing.push_sender import PushSender
+
+        public, private = pair()
+
+        check_vapid_keys(public + bruit, private + bruit, SUBJECT)
+
+        expediteur.VAPID_PRIVATE_KEY = clean_secret(private + bruit)
+        try:
+            entetes = PushSender()._headers("https://fcm.googleapis.com/fcm/send/x", b"corps")
+        finally:
+            expediteur.VAPID_PRIVATE_KEY = None
+
+        assert entetes["Authorization"].startswith("vapid t=")
+
+    def test_nothing_at_all_stays_nothing(self):
+        # Une variable vide doit rester absente, sinon push_configured la
+        # prendrait pour une cle et le push s'annoncerait installe.
+        assert clean_secret("   ") is None
+        assert clean_secret(None) is None

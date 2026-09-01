@@ -157,8 +157,17 @@ RESEND_FROM_EMAIL_REMINDER = os.getenv("RESEND_FROM_EMAIL_REMINDER", "reminder@o
 # Supervision, pas dependance : absente, l'alerte se tait.
 OPERATOR_EMAIL = os.getenv("OPERATOR_EMAIL")
 
-VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY")
-VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY")
+def clean_secret(raw: str | None) -> str | None:
+    # Un secret colle depuis un tableau de bord arrive souvent avec un retour
+    # a la ligne. check_vapid_keys le rognait avant de lire, la signature non :
+    # la paire passait le controle de demarrage et echouait au premier envoi,
+    # c'est-a-dire la panne exacte que ce controle existe pour rendre
+    # impossible. Le rognage appartient donc a la lecture, pas aux deux.
+    return (raw or "").strip() or None
+
+
+VAPID_PUBLIC_KEY = clean_secret(os.getenv("VAPID_PUBLIC_KEY"))
+VAPID_PRIVATE_KEY = clean_secret(os.getenv("VAPID_PRIVATE_KEY"))
 VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", "mailto:rappels@oubliepas.com")
 
 
