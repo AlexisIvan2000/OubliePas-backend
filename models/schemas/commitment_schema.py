@@ -154,7 +154,7 @@ class DeletedCommitments(BaseModel):
 
 
 class RestoreRequest(BaseModel):
-    ids: list[UUID] = Field(min_length=1, max_length=500)
+    ids: list[UUID] = Field(min_length=1, max_length=MAX_BATCH_IDS)
 
 
 class BatchIdsRequest(BaseModel):

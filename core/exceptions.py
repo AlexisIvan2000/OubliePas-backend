@@ -209,6 +209,20 @@ class OccurrenceNotFound(AppException):
     message = "This due date does not exist"
 
 
+class RestoreLimitReached(AppException):
+    status_code = 409
+    code = "RESTORE_LIMIT_REACHED"
+    message = "Restoring these would take the account too far above its limit"
+
+    def __init__(self, commitment_type: str, limit: int):
+        super().__init__()
+        self.commitment_type = commitment_type
+        self.limit = limit
+
+    def to_dict(self) -> dict:
+        return {**super().to_dict(), "type": self.commitment_type, "limit": self.limit}
+
+
 class CommitmentLimitReached(AppException):
     status_code = 409
     code = "COMMITMENT_LIMIT_REACHED"

@@ -11,12 +11,14 @@ from core.exceptions import (
     InvalidDateRange,
     NoFieldsToUpdate,
     OccurrenceNotFound,
+    RestoreLimitReached,
 )
 from models.db.commitments_db import (
     COUNTED_STATUSES,
     DEFAULT_REMINDER_DAYS,
     MAX_COMMITMENTS_PER_TYPE,
     PURGE_AFTER_DAYS,
+    RESTORE_CEILING_FACTOR,
     Commitment,
     CommitmentOccurrence,
 )
@@ -254,7 +256,34 @@ class CommitmentService:
         )
         return {"deleted": len(removed), "ids": [str(one) for one in removed]}
 
+    async def _guard_restore(self, user_id: str, ids: list) -> None:
+        # Restaurer a le droit de depasser le plafond, sinon une corbeille
+        # pleine serait perdue. Le droit s'arrete au toit : sans lui, le cycle
+        # creer / supprimer / restaurer ajoutait 25 lignes par tour et le
+        # plafond ne plafonnait plus rien.
+        toit = RESTORE_CEILING_FACTOR * MAX_COMMITMENTS_PER_TYPE
+        vises = {str(one) for one in ids}
+        entrants: dict[str, int] = {}
+        for commitment in await self.repo.list_deleted(user_id):
+            if str(commitment.id) in vises and commitment.status in COUNTED_STATUSES:
+                entrants[commitment.type] = entrants.get(commitment.type, 0) + 1
+
+        for commitment_type, combien in entrants.items():
+            tracked = await self.repo.count_commitments(
+                user_id, statuses=COUNTED_STATUSES, commitment_type=commitment_type
+            )
+            if tracked + combien > toit:
+                logger.warning(
+                    "user %s asked to restore %s %s(s) over a population of %s",
+                    user_id,
+                    combien,
+                    commitment_type,
+                    tracked,
+                )
+                raise RestoreLimitReached(commitment_type, toit)
+
     async def restore(self, user_id: str, ids: list) -> dict:
+        await self._guard_restore(user_id, ids)
         restored = await self.repo.restore(user_id, ids)
         logger.info("user %s restored %s commitment(s) from the trash", user_id, restored)
         return {"restored": restored}

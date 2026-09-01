@@ -1,6 +1,7 @@
 import pytest
 
-from models.db.commitments_db import MAX_COMMITMENTS_PER_TYPE
+from models.db.commitments_db import MAX_COMMITMENTS_PER_TYPE, RESTORE_CEILING_FACTOR
+from models.schemas.commitment_schema import MAX_BATCH_IDS
 from services.commitments.occurrence_generator import today_utc
 
 pytestmark = pytest.mark.integration
@@ -43,6 +44,18 @@ def fill(client, token, count, commitment_type="subscription"):
         assert response.status_code == 201, response.text
         ids.append(response.json()["id"])
     return ids
+
+
+def vider(client, token, ids):
+    response = client.post(
+        "/v1/commitments/batch-delete", json={"ids": ids}, headers=auth(token)
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["deleted"]
+
+
+def restaurer(client, token, ids):
+    return client.post("/v1/commitments/restore", json={"ids": ids}, headers=auth(token))
 
 
 def live(client, token):
@@ -185,6 +198,95 @@ class TestRestoring:
         assert restored.status_code == 200
         assert restored.json()["restored"] == 1
         assert len(live(client, token)) == LIMIT + 1
+
+
+class TestTheTrashHasARoof:
+    def test_the_cycle_that_used_to_grow_without_end_is_stopped(self, client, token):
+        # Le contournement : creer 25, tout jeter, recreer 25, tout jeter, et la
+        # corbeille en tient 50 pendant que 25 vivent. Chaque tour ajoutait 25
+        # lignes de plus que le plafond, sans fin et sans qu'aucune garde ne
+        # s'en apercoive.
+        premiers = fill(client, token, LIMIT)
+        vider(client, token, premiers)
+        seconds = fill(client, token, LIMIT)
+        vider(client, token, seconds)
+        fill(client, token, LIMIT)
+
+        refus = restaurer(client, token, premiers + seconds)
+
+        assert refus.status_code == 409
+        detail = refus.json()["detail"]
+        assert detail["code"] == "RESTORE_LIMIT_REACHED"
+        assert detail["limit"] == RESTORE_CEILING_FACTOR * LIMIT
+        assert len(live(client, token)) == LIMIT
+
+    def test_the_roof_itself_is_reachable(self, client, token):
+        # Exactement deux fois le plafond passe : le refus commence au-dela,
+        # sinon reprendre une corbeille pleine deviendrait impossible.
+        jetes = fill(client, token, LIMIT)
+        vider(client, token, jetes)
+        fill(client, token, LIMIT)
+
+        rendu = restaurer(client, token, jetes)
+
+        assert rendu.status_code == 200
+        assert len(live(client, token)) == RESTORE_CEILING_FACTOR * LIMIT
+
+    def test_each_type_carries_its_own_roof(self, client, token):
+        # Un compte au toit sur ses abonnements peut toujours reprendre ses
+        # factures : les deux populations ne se comptent pas ensemble.
+        jetes = fill(client, token, LIMIT, "invoice")
+        vider(client, token, jetes)
+        fill(client, token, LIMIT, "invoice")
+        fill(client, token, LIMIT, "subscription")
+
+        assert restaurer(client, token, jetes).status_code == 200
+
+    def test_an_archived_line_comes_back_even_from_under_the_roof(self, client, token):
+        # Une ligne archivee ne compte dans aucune population : la refuser
+        # rendrait un historique irrecuperable pour une place qu'il ne prend
+        # pas. Le toit doit deja etre atteint, sinon la garde passerait aussi
+        # bien sans faire la difference.
+        cree = create(client, token, 0).json()["id"]
+        client.patch(
+            f"/v1/commitments/{cree}", json={"status": "archived"}, headers=auth(token)
+        )
+        vider(client, token, [cree])
+        jetes = fill(client, token, LIMIT)
+        vider(client, token, jetes)
+        fill(client, token, LIMIT)
+        assert restaurer(client, token, jetes).status_code == 200
+        assert len(live(client, token)) == RESTORE_CEILING_FACTOR * LIMIT
+
+        assert restaurer(client, token, [cree]).status_code == 200
+
+    def test_a_batch_never_lands_half_way(self, client, token):
+        # Le refus precede l'ecriture : rien ne doit sortir de la corbeille
+        # quand le lot depasse, pas meme les premieres lignes du lot.
+        premiers = fill(client, token, LIMIT)
+        vider(client, token, premiers)
+        seconds = fill(client, token, LIMIT)
+        vider(client, token, seconds)
+        fill(client, token, LIMIT)
+
+        restaurer(client, token, premiers + seconds)
+
+        corbeille = client.get("/v1/commitments/trash", headers=auth(token)).json()
+        assert len(corbeille) == 2 * LIMIT
+
+
+class TestTheSizeOfARestoreBatch:
+    def test_it_stops_where_the_other_batches_stop(self, client, token):
+        # 500 ici et 200 ailleurs etait un ecart sans raison : le lot le plus
+        # gros doit couter le meme travail que les autres.
+        trop = ["11111111-1111-1111-1111-111111111111"] * (MAX_BATCH_IDS + 1)
+
+        assert restaurer(client, token, trop).status_code == 422
+
+    def test_a_full_batch_is_still_accepted(self, client, token):
+        juste = ["11111111-1111-1111-1111-111111111111"] * MAX_BATCH_IDS
+
+        assert restaurer(client, token, juste).status_code == 200
 
 
 class TestTheFrontKnowsTheCeiling:

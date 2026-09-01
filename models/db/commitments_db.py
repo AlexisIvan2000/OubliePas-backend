@@ -47,6 +47,14 @@ MAX_CANCELLATION_NOTICE_DAYS = 60
 MAX_COMMITMENTS_PER_TYPE = 25
 COUNTED_STATUSES = ("active", "paused")
 
+# La corbeille a le droit de depasser le plafond : punir quelqu'un qui
+# recupere une ligne effacee par erreur serait pire que le depassement. Ce
+# droit avait un defaut, il etait sans fond — creer 25, tout supprimer,
+# creer 25, restaurer, et le compte gagnait 25 lignes a chaque tour sans
+# qu'aucune garde ne s'en apercoive. Le toit laisse passer la reprise d'une
+# corbeille pleine et arrete la boucle.
+RESTORE_CEILING_FACTOR = 2
+
 
 def _in_clause(column: str, values: tuple[str, ...]) -> str:
     return f"{column} IN ({', '.join(repr(value) for value in values)})"
