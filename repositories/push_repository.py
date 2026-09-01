@@ -100,7 +100,10 @@ class PushRepository:
     async def forget(self, endpoint: str) -> int:
         # Appelee sur 410 Gone : le service de push declare l'adresse morte, et
         # personne n'est la pour le dire a l'utilisateur. On efface sans
-        # verifier le proprietaire, puisque l'adresse est unique.
+        # verifier le proprietaire, puisque l'adresse est unique — et l'appelant
+        # ne la tient que d'une ligne deja cadree par find() ou list_for_user().
+        # C'est l'unicite qui rend ce raccourci sur : la perdre rendrait cette
+        # methode capable d'effacer la ligne d'un autre compte.
         result = await self.session.execute(
             delete(PushSubscription).where(PushSubscription.endpoint == endpoint)
         )

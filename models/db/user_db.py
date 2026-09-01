@@ -169,6 +169,15 @@ class PushSubscription(Base):
     # L'adresse d'envoi identifie l'abonnement a elle seule, et le navigateur la
     # reconduit telle quelle : elle sert de cle d'upsert plutot qu'un couple
     # (utilisateur, appareil) qu'aucun des deux cotes ne sait fabriquer.
+    #
+    # Invariant : cette colonne est un porteur d'autorite. Unique a l'echelle
+    # de la table, et l'upsert de save() reassigne user_id — ce qui fait
+    # justement marcher un appareil qui change de mains, et signifie que qui
+    # apprend une adresse reprend l'abonnement du compte qui la detient. La
+    # victime ne verrait rien : le client lit l'abonnement du navigateur, pas
+    # cette table, et son interrupteur resterait au vert. L'adresse ne doit
+    # donc jamais partir dans un journal, une trace ou un message d'erreur ;
+    # les refus de endpoint_policy n'en gardent que l'hote.
     endpoint: Mapped[str] = mapped_column(Text, unique=True)
     p256dh: Mapped[str] = mapped_column(String(255))
     auth: Mapped[str] = mapped_column(String(255))
