@@ -99,6 +99,6 @@ class UserResponse(BaseModel):
     reminder_action_enabled: bool = True
     reminder_weekly_enabled: bool = False
     default_reminder_days: int = 3
-    locale: str = DEFAULT_LOCALE
+    locale: str = DEFAULT_LOCALE
     timezone: str = DEFAULT_TIMEZONE
     commitment_limit: int = MAX_COMMITMENTS_PER_TYPE
