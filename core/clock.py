@@ -11,6 +11,8 @@ MAX_TIMEZONE_LENGTH = 64
 
 @lru_cache(maxsize=1)
 def known_timezones() -> frozenset[str]:
+    # available_timezones parcourt la base tz a chaque appel : sans ce cache,
+    # valider un profil couterait une lecture de disque.
     return frozenset(available_timezones())
 
 
@@ -23,22 +25,38 @@ def _zone(name: str) -> ZoneInfo:
     return ZoneInfo(name)
 
 
-def zone_of(user) -> ZoneInfo:
-    name = getattr(user, "timezone", None) or DEFAULT_TIMEZONE
+def zone_named(name: str | None) -> ZoneInfo:
+    name = name or DEFAULT_TIMEZONE
     try:
         return _zone(name)
     except Exception:
+        # Le nom est valide a l'ecriture, mais une base tz peut retirer une zone
+        # d'une version a l'autre. Un tableau de bord qui rend 500 pour cela
+        # serait pire que le decalage d'un fuseau : on retombe sur UTC, et on le
+        # dit dans le journal plutot que de le taire.
         logger.warning("unknown time zone %r stored for a user, falling back to UTC", name)
         return _zone(DEFAULT_TIMEZONE)
+
+
+def zone_of(user) -> ZoneInfo:
+    return zone_named(getattr(user, "timezone", None))
 
 
 def now_for(user) -> datetime:
     return datetime.now(zone_of(user))
 
 
+def today_in(name: str | None) -> date:
+    """Le jour dans ce fuseau, pour les boucles qui tiennent le nom sans la personne."""
+    return datetime.now(zone_named(name)).date()
+
+
 def today_for(user) -> date:
+    """Le jour tel que cette personne le voit : seule definition de « aujourd'hui »."""
     return now_for(user).date()
 
 
 def today_utc() -> date:
+    # Ce qui n'appartient a personne : les purges, les journaux, le verrou du
+    # cron. Tout calcul qu'un utilisateur verra passe par today_for.
     return datetime.now(timezone.utc).date()

@@ -5,7 +5,6 @@ from datetime import date
 from repositories.auth_repository import AuthRepository
 from repositories.commitment_repository import CommitmentRepository
 from services.commitments.action_window import TRIAL, action_window
-from services.commitments.occurrence_generator import today_utc
 from core.config import push_configured
 from repositories.push_repository import PushRepository
 from services.emailing.email_sender import EmailSender
@@ -173,8 +172,8 @@ class ReminderService:
             return [EMAIL]
         return [EMAIL, PUSH]
 
-    async def send_due(self, *, on_date: date | None = None) -> dict:
-        reference = on_date or today_utc()
+    async def send_due(self, *, on_date: date) -> dict:
+        reference = on_date
         # emails_sent est un plancher, pas la facture : le quota Resend compte
         # aussi les transactionnels (verification, mot de passe, changement
         # d'adresse), qui ne passent pas par ici. Le tableau de bord Resend fait

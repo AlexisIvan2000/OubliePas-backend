@@ -18,6 +18,7 @@ from models.db.commitments_db import (
     CommitmentOccurrence,
     OccurrenceReminder,
 )
+from models.db.user_db import User
 
 
 class DueDates(NamedTuple):
@@ -97,13 +98,17 @@ class CommitmentRepository:
         await self.session.flush()
         return result.rowcount
 
-    async def list_active(self) -> list[Commitment]:
+    async def active_with_timezone(self) -> list[tuple[Commitment, str]]:
+        # Le fuseau voyage avec la ligne : le plancher de generation est celui
+        # du proprietaire, et le cron parcourt les engagements de tout le monde
+        # en un seul passage. Une seconde requete par utilisateur ferait N+1.
         result = await self.session.execute(
-            select(Commitment)
+            select(Commitment, User.timezone)
+            .join(User, User.id == Commitment.user_id)
             .where(Commitment.status == "active", Commitment.deleted_at.is_(None))
             .order_by(Commitment.created_at)
         )
-        return list(result.scalars().all())
+        return [(commitment, zone) for commitment, zone in result.all()]
 
     async def update(self, commitment_id: str, user_id: str, data: dict) -> Commitment | None:
         commitment = await self.get_by_id(commitment_id, user_id)

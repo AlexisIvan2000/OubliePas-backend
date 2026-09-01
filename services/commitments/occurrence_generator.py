@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from models.db.commitments_db import Commitment
 from repositories.commitment_repository import CommitmentRepository
-from core.clock import today_utc
+from core.clock import today_in, today_utc
 
 MONTHS_BY_FREQUENCY = {"monthly": 1, "quarterly": 3, "yearly": 12}
 GENERATION_HORIZON_DAYS = 90
@@ -108,19 +108,24 @@ class OccurrenceGenerator:
             for due in dates
         ]
 
-    async def sync(self, commitment: Commitment, *, today: date | None = None) -> int:
+    # « aujourd'hui » est exige, jamais devine : un plancher pris sur
+    # l'horloge du serveur decalerait la generation d'un jour pour la moitie
+    # de la planete, et l'oubli ne se verrait nulle part.
+    async def sync(self, commitment: Commitment, *, today: date) -> int:
         if commitment.status != "active":
             return 0
-        return await self.repo.add_occurrences(self._rows(commitment, today or today_utc()))
+        return await self.repo.add_occurrences(self._rows(commitment, today))
 
-    async def resync(self, commitment: Commitment, *, today: date | None = None) -> int:
-        reference = today or today_utc()
+    async def resync(self, commitment: Commitment, *, today: date) -> int:
+        reference = today
         await self.repo.delete_pending_occurrences_from(commitment.id, reference)
         return await self.sync(commitment, today=reference)
 
     async def sync_all_active(self, *, today: date | None = None) -> int:
-        reference = today or today_utc()
         created = 0
-        for commitment in await self.repo.list_active():
-            created += await self.sync(commitment, today=reference)
+        for commitment, zone in await self.repo.active_with_timezone():
+            # « Avant aujourd'hui » ne veut pas dire la meme chose a Tokyo et
+            # a Moncton : le plancher qui empeche une ligne antidatee de
+            # fabriquer de l'historique est celui de son proprietaire.
+            created += await self.sync(commitment, today=today or today_in(zone))
         return created

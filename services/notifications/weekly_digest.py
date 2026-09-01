@@ -5,7 +5,6 @@ from datetime import date, timedelta
 from repositories.auth_repository import AuthRepository
 from repositories.commitment_repository import CommitmentRepository
 from repositories.digest_repository import DigestRepository
-from services.commitments.occurrence_generator import today_utc
 from services.emailing.email_sender import EmailSender
 
 logger = logging.getLogger(__name__)
@@ -30,8 +29,8 @@ class WeeklyDigestService:
         self.digest_repo = digest_repo
         self.sender = sender
 
-    async def send(self, *, on_date: date | None = None) -> dict:
-        reference = on_date or today_utc()
+    async def send(self, *, on_date: date) -> dict:
+        reference = on_date
         report = {"weekly_sent": 0, "weekly_skipped": 0, "weekly_failed": 0}
 
         start = week_start(reference)
