@@ -16,18 +16,17 @@ def b64(raw: bytes) -> str:
 
 
 def encode(private_key) -> tuple[str, str]:
-    # Le format brut, pas le PEM : py_vapid signe a partir de from_raw, qui
-    # refuse un PEM sur une erreur de courbe illisible. La commande `vapid`
-    # livree avec la bibliotheque ecrit pourtant des .pem, et c'est le piege.
+    # Le format brut, pas le PEM : py_vapid signe depuis from_raw, qui refuse un
+    # PEM sur une erreur de courbe illisible. La commande livree avec la
+    # bibliothèque écrit pourtant des .pem, et c'est le piège.
     public = private_key.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
     private = private_key.private_numbers().private_value.to_bytes(32, "big")
     return b64(public), b64(private)
 
 
 def write_env(path: str, values: dict) -> None:
-    # Reecriture ligne a ligne plutot qu'un rendu complet du fichier : .env
-    # porte des commentaires et un ordre qui appartiennent a celui qui l'a
-    # ecrit. La cle privee ne transite par aucun affichage.
+    # Ligne à ligne plutôt qu'un rendu complet : .env porte des commentaires et
+    # un ordre qui appartiennent à celui qui l'a écrit.
     with open(path, "rb") as handle:
         raw = handle.read()
 

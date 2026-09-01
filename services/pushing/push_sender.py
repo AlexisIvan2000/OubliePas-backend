@@ -21,14 +21,14 @@ from services.pushing.endpoint_policy import refusal_reason, refused_host
 
 logger = logging.getLogger(__name__)
 
-# Au-dela, un rappel du matin arriverait apres l'echeance.
+# Au-delà, un rappel du matin arriverait après l'échéance.
 TTL_SECONDS = 12 * 3600
 TOKEN_LIFETIME_SECONDS = 24 * 3600
 GONE = (404, 410)
 
 
 def _b64(raw: str) -> bytes:
-    # Souvent sans padding cote navigateur.
+    # Souvent sans padding côté navigateur.
     return base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
 
 
@@ -45,8 +45,8 @@ class PushSender:
     def _headers(self, endpoint: str, payload: bytes) -> dict:
         origin = urlsplit(endpoint)
         vapid = Vapid02.from_raw(VAPID_PRIVATE_KEY.encode("utf-8"))
-        # L'origine, pas l'adresse : un jeton signe pour une adresse precise
-        # serait refuse par les autres.
+        # L'origine, pas l'adresse : un jeton signé pour une adresse précise
+        # serait refusé par les autres.
         signed = vapid.sign(
             {
                 "aud": f"{origin.scheme}://{origin.netloc}",
@@ -67,12 +67,10 @@ class PushSender:
         if not push_configured():
             raise RuntimeError("VAPID keys are missing")
 
-        # Deuxieme verrou, pour les lignes ecrites avant la liste blanche et
-        # pour le cron, qui lit la table sans repasser par la route. Rendue
-        # morte plutot que levee : une adresse qu'on ne composera jamais est
-        # aussi inutile qu'une adresse que le service declare disparue, et
-        # l'appelant l'efface deja dans ce cas. Lever la garderait pour
-        # toujours et la ferait resonner a chaque passage.
+        # Deuxième verrou, pour les lignes écrites avant la liste blanche et
+        # pour le cron, qui lit la table sans repasser par la route. Rendue morte
+        # plutôt que levée : l'appelant efface déjà sur ce mot, alors que lever
+        # la garderait pour toujours.
         motif = refusal_reason(subscription.endpoint)
         if motif is not None:
             logger.warning(
@@ -83,8 +81,8 @@ class PushSender:
             return "gone"
 
         payload = json.dumps({"title": title, "body": body, "url": url}).encode("utf-8")
-        # Une paire ephemere par envoi, exigee par aes128gcm : sans elle
-        # http_ece leve avant meme d'ouvrir une connexion.
+        # Une paire éphémère par envoi, exigée par aes128gcm : sans elle,
+        # http_ece lève avant même d'ouvrir une connexion.
         encrypted = http_ece.encrypt(
             payload,
             salt=os.urandom(16),
@@ -108,7 +106,7 @@ class PushSender:
         locale = messages.pick(locale)
         count = len(items)
         title = messages.text(locale, "push_title")
-        # Jamais le montant : un ecran verrouille est un lieu public.
+        # Jamais le montant : un écran verrouillé est un lieu public.
         if count == 1:
             body = messages.text(
                 locale, f"push_{kind}_one", title=str(items[0]["title"]),

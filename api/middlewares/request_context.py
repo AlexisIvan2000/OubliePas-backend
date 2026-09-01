@@ -11,7 +11,7 @@ logger = logging.getLogger("api.access")
 
 HEADER = "X-Request-ID"
 
-# Frappee toutes les quinze secondes par la plateforme.
+# Frappée toutes les quinze secondes par la plateforme.
 QUIET_PATHS = {"/health"}
 
 
@@ -33,7 +33,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
         except Exception:
-            # La trace complete revient au middleware d'enveloppe.
+            # La trace complète revient au middleware d'enveloppe.
             logger.warning(
                 "%s %s -> exception in %.0fms",
                 request.method,

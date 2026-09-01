@@ -21,7 +21,7 @@ MAX_AMOUNT = Decimal("99999999.99")
 MAX_NOTES_LENGTH = 1000
 UPCOMING_DAYS = 14
 MAX_UPCOMING = 8
-# Une selection tient dans un ecran : au-dela, c'est un script, pas un geste.
+# Une sélection tient dans un écran : au-delà, c'est un script, pas un geste.
 MAX_BATCH_IDS = 200
 
 

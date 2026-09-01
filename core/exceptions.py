@@ -234,8 +234,8 @@ class CommitmentLimitReached(AppException):
         self.limit = limit
 
     def to_dict(self) -> dict:
-        # Le front compose son propre message : il lui faut le type pour choisir
-        # le mot et la limite pour l'annoncer, sans la reecrire de son cote.
+        # Le front compose son message : il lui faut le type pour choisir le mot
+        # et la limite pour l'annoncer, sans la réécrire de son côté.
         return {**super().to_dict(), "type": self.commitment_type, "limit": self.limit}
 
 

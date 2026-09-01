@@ -1,8 +1,8 @@
 import ipaddress
 from urllib.parse import urlsplit
 
-# Les services de push sont peu nombreux et changent rarement : une liste
-# nommee coute moins qu'une heuristique, et elle refuse par defaut.
+# Peu nombreux et stables : une liste nommée coûte moins qu'une heuristique,
+# et elle refuse par défaut.
 ALLOWED_HOSTS = frozenset(
     {
         "fcm.googleapis.com",
@@ -17,8 +17,8 @@ ALLOWED_SUFFIXES = (
     ".notify.live.net",
 )
 
-# Le plancher tient meme si la liste s'ouvre un jour : il ne connait pas les
-# services, il connait les adresses qu'une API ne doit jamais appeler.
+# Le plancher tient même si la liste s'ouvre un jour : il ne connaît pas les
+# services, il connaît les adresses qu'une API ne doit jamais appeler.
 INTERNAL_SUFFIXES = (".internal", ".local", ".localdomain", ".home.arpa")
 INTERNAL_NAMES = frozenset({"localhost", "metadata", "metadata.google.internal"})
 
@@ -43,10 +43,9 @@ def refusal_reason(endpoint: str) -> str | None:
     if parts.scheme != "https":
         return "scheme"
 
-    # hostname et non netloc, pour deux raisons : « https://fcm.googleapis.com
-    # @interne/ » a pour netloc l'hote autorise et pour hostname la vraie
-    # cible, et hostname rend deja la casse normalisee — un .lower() de plus
-    # serait une ligne qu'aucun test ne pourrait faire tomber.
+    # hostname et non netloc : « https://fcm.googleapis.com@interne/ » a pour
+    # netloc l'hôte autorisé et pour hostname la vraie cible. hostname rend
+    # aussi la casse normalisée, d'où l'absence de .lower() ici.
     host = (parts.hostname or "").rstrip(".")
     if not host:
         return "no-host"
@@ -64,8 +63,8 @@ def refusal_reason(endpoint: str) -> str | None:
     if port not in ALLOWED_PORTS:
         return "port"
 
-    # Le point du suffixe est porteur : sans lui, « evilnotify.windows.com »
-    # passerait pour un hote de Microsoft.
+    # Le point du suffixe porte la garde : sans lui, « evilnotify.windows.com »
+    # passerait pour un hôte de Microsoft.
     if host in ALLOWED_HOSTS or host.endswith(ALLOWED_SUFFIXES):
         return None
 

@@ -34,9 +34,8 @@ class PushRepository:
         self, user_id: str, *, endpoint: str, p256dh: str, auth: str, user_agent: str | None
     ) -> PushSubscription:
         now = datetime.now(timezone.utc)
-        # Un navigateur reconduit la meme adresse a chaque reabonnement, et un
-        # appareil peut changer de compte : le conflit met a jour le
-        # proprietaire et les cles, il n'ajoute pas une seconde ligne morte.
+        # Un appareil peut changer de compte : le conflit met à jour le
+        # propriétaire et les clés, il n'ajoute pas une seconde ligne morte.
         statement = (
             pg_insert(PushSubscription)
             .values(
@@ -68,10 +67,9 @@ class PushRepository:
         return saved
 
     async def prune(self, user_id: str, keep: int = MAX_PUSH_SUBSCRIPTIONS_PER_USER) -> int:
-        # Le moins recemment vu part : c'est l'appareil dont personne ne
-        # s'est servi depuis le plus longtemps, et il se reabonnera seul a
-        # la prochaine visite. L'identifiant departage les egalites, sinon
-        # l'ordre serait celui que la base voudra bien rendre.
+        # Le moins récemment vu part, et se réabonnera seul à la prochaine
+        # visite. L'identifiant départage les égalités, sinon l'ordre serait
+        # celui que la base voudra bien rendre.
         gardes = (
             select(PushSubscription.id)
             .where(PushSubscription.user_id == user_id)
@@ -98,12 +96,9 @@ class PushRepository:
         return result.rowcount
 
     async def forget(self, endpoint: str) -> int:
-        # Appelee sur 410 Gone : le service de push declare l'adresse morte, et
-        # personne n'est la pour le dire a l'utilisateur. On efface sans
-        # verifier le proprietaire, puisque l'adresse est unique — et l'appelant
-        # ne la tient que d'une ligne deja cadree par find() ou list_for_user().
-        # C'est l'unicite qui rend ce raccourci sur : la perdre rendrait cette
-        # methode capable d'effacer la ligne d'un autre compte.
+        # Appelée sur 410 Gone. On efface sans vérifier le propriétaire parce
+        # que l'adresse est unique : perdre cette unicité rendrait la méthode
+        # capable d'effacer la ligne d'un autre compte.
         result = await self.session.execute(
             delete(PushSubscription).where(PushSubscription.endpoint == endpoint)
         )

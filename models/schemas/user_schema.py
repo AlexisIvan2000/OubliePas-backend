@@ -23,11 +23,10 @@ def validate_password_strength(value: str) -> str:
 
 
 class UpdateProfile(BaseModel):
-    # avatar_url n'est pas ici : elle porte la photo Google, ecrite par le
-    # serveur. Ouverte au client, elle contournait le plafond, le nettoyeur
-    # d'image et le stockage, et faisait fuir l'adresse IP du visiteur vers le
-    # serveur de son choix a chaque affichage. Les inconnus sont refuses plutot
-    # qu'ignores, pour que le refus se voie.
+    # avatar_url n'est pas ici : ouverte au client, elle contournerait le
+    # plafond, le nettoyeur d'image et le stockage, et ferait fuir l'adresse IP
+    # du visiteur vers le serveur de son choix. Les champs inconnus sont refusés
+    # plutôt qu'ignorés, pour que le refus se voie.
     model_config = ConfigDict(extra="forbid")
 
     first_name: str | None = Field(default=None, min_length=1, max_length=100)
@@ -46,8 +45,8 @@ class UpdateProfile(BaseModel):
     @field_validator("timezone")
     @classmethod
     def validate_timezone(cls, value: str | None) -> str | None:
-        # Contre la base tz reellement installee, jamais contre une liste
-        # recopiee : c'est elle qui decidera du jour de cette personne.
+        # Contre la base tz réellement installée, jamais une liste recopiée :
+        # c'est elle qui décidera du jour de cette personne.
         if value is None or is_known_timezone(value):
             return value
         raise ValueError("Unknown time zone")

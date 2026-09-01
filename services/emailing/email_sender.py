@@ -210,8 +210,8 @@ class EmailSender:
             )
             for item in items
         ]
-        # Le total sous le tableau : c'est la seule chose que ce courriel
-        # apporte qu'un rappel a l'unite ne dit pas.
+        # Le total sous le tableau : la seule chose que ce courriel apporte
+        # qu'un rappel à l'unité ne dit pas.
         extra = layout.paragraph(
             messages.text(
                 locale, "weekly_total", amount=messages.money(total, currency, locale)

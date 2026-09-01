@@ -28,8 +28,8 @@ router = APIRouter(prefix="/push", tags=["push"])
 @router.get("/key", response_model=PushKeyResponse)
 @limiter.limit(READ_LIMIT)
 async def public_key(request: Request, user: CurrentUserDep):
-    # Rendue nulle plutot qu'absente quand le serveur n'a pas de paire : le
-    # client distingue ainsi « le push n'est pas installe ici » d'une panne.
+    # Nulle plutôt qu'absente : le client distingue ainsi « pas installé ici »
+    # d'une panne.
     return PushKeyResponse(public_key=VAPID_PUBLIC_KEY if push_configured() else None)
 
 
@@ -44,8 +44,8 @@ async def subscribe(
 ):
     motif = refusal_reason(payload.endpoint)
     if motif is not None:
-        # L'hote seul, jamais l'adresse : elle vaut porteur d'autorite, et
-        # ce journal-ci est la piste d'un compte qui sonde le reseau interne.
+        # L'hôte seul, jamais l'adresse, qui vaut porteur d'autorité. Ce
+        # journal est la piste d'un compte qui sonde le réseau interne.
         logger.warning(
             "user %s offered a push address we refuse (%s, host %s)",
             user.id,
@@ -80,9 +80,8 @@ async def send_test(
     if subscription is None:
         raise PushSubscriptionGone()
 
-    # La preuve doit venir du service de push et non du navigateur : une
-    # notification fabriquee sur place s'afficherait meme quand rien n'est
-    # joignable, et l'interrupteur mentirait a celui qui vient de l'allumer.
+    # La preuve vient du service de push, jamais du navigateur : une
+    # notification fabriquée ici s'afficherait même le chemin coupé.
     if await sender.send_test(subscription, locale=user.locale) == "gone":
         await repo.forget(payload.endpoint)
         raise PushSubscriptionGone()
@@ -95,8 +94,7 @@ async def send_test(
 async def unsubscribe(
     request: Request, payload: PushUnsubscribe, user: CurrentUserDep, repo: PushRepoDep
 ):
-    # Silencieuse quand rien ne correspond : desabonner deux fois est le cas
-    # normal, pas une erreur a signaler a quelqu'un qui a deja obtenu ce qu'il
-    # voulait.
+    # Silencieuse quand rien ne correspond : se désabonner deux fois est le cas
+    # normal, pas une erreur à signaler.
     await repo.remove(str(user.id), payload.endpoint)
     return MessageResponse(message="Subscription removed")

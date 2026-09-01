@@ -47,10 +47,9 @@ class AuthRepository:
             "verification_code_expires_at": None,
         })
 
-    # Le mot de passe oublie ne connait que l'adresse : l'utilisateur n'est pas
-    # authentifie a ce moment-la. C'est la seule ecriture de code qui ne passe
-    # pas par l'identifiant, et la raison pour laquelle les emetteurs d'OTP ne
-    # peuvent pas etre fondus en un seul appel de depot.
+    # Le mot de passe oublié ne connaît que l'adresse : c'est la seule écriture
+    # de code qui ne passe pas par l'identifiant, et la raison pour laquelle les
+    # trois émetteurs ne se fondent pas en un seul.
     async def update_user_by_email(self, email: str, data: dict) -> User | None:
         await self.session.execute(update(User).where(User.email == email).values(**data))
         await self.session.flush()
@@ -76,8 +75,8 @@ class AuthRepository:
         return result.scalar_one_or_none() or 0
 
     async def bump_attempts(self, user_id: str, kind: str) -> int:
-        # Une seule aller-retour, et la contrainte d'unicite arbitre deux essais
-        # simultanes au lieu d'un lire-puis-ecrire qui en perdrait un.
+        # Un seul aller-retour, et la contrainte d'unicité arbitre deux essais
+        # simultanés au lieu d'un lire-puis-écrire qui en perdrait un.
         statement = (
             pg_insert(VerificationAttempt)
             .values(

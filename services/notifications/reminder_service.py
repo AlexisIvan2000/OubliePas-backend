@@ -27,10 +27,9 @@ FAMILY_SWITCH = {
 EMAIL = "email"
 PUSH = "push"
 
-# Chaque canal a son interrupteur de compte, son compteur d'envois et son
-# compteur d'echecs. Seul celui du courriel decide du code de sortie du job : le
-# push est le canal rapide, pas le canal fiable, et un telephone endormi ne doit
-# pas faire echouer un passage ou tous les courriels sont partis.
+# Seul le courriel décide du code de sortie du job : le push est le canal
+# rapide, pas le canal fiable, et un téléphone endormi ne doit pas faire échouer
+# un passage où tous les courriels sont partis.
 CHANNELS = {
     EMAIL: {"switch": "reminder_email_enabled", "sent": "emails_sent", "failed": "failed"},
     PUSH: {"switch": "reminder_push_enabled", "sent": "push_sent", "failed": "push_failed"},
@@ -49,7 +48,7 @@ class ReminderService:
         self.repo = repo
         self.auth_repo = auth_repo
         self.sender = sender
-        # Absents, le push ne part pas et le courriel ne s'en apercoit pas.
+        # Absents, le push ne part pas et le courriel ne s'en aperçoit pas.
         self.push_repo = push_repo
         self.push_sender = push_sender
 
@@ -74,8 +73,8 @@ class ReminderService:
     async def _deliver_push(self, kind: str, user, entries: list[tuple], reference: date) -> None:
         subscriptions = await self.push_repo.list_for_user(str(user.id))
         if not subscriptions:
-            # Interrupteur allume sans appareil enregistre : rien a envoyer,
-            # mais rien d'anormal non plus.
+            # Interrupteur allumé sans appareil enregistré : rien à envoyer,
+            # rien d'anormal non plus.
             return
 
         items = self._items(kind, entries, reference)
@@ -106,8 +105,8 @@ class ReminderService:
             occurrence, commitment = entry[0], entry[1]
             if not is_due(kind, occurrence, commitment, today):
                 continue
-            # Pour une action, la date decide aussi de l'ouverture de la
-            # fenetre, pas seulement de l'intervalle de selection.
+            # Pour une action, la date décide aussi de l'ouverture de la
+            # fenêtre, pas seulement de l'intervalle de sélection.
             if kind == ACTION and not entry[2].is_open(today):
                 continue
             gardees.append(entry)
@@ -141,10 +140,9 @@ class ReminderService:
                 report["skipped"] += len(rows)
                 continue
 
-            # La requete a ratisse large, d'un jour de chaque cote, pour ne
-            # perdre personne. La date de cette personne tranche maintenant.
-            # Ce qu'elle ecarte n'est pas perdu : les bornes sont un
-            # intervalle, le passage suivant le reprendra.
+            # La requête a ratissé large. La date de cette personne tranche
+            # maintenant, et ce qu'elle écarte n'est pas perdu : les bornes sont
+            # un intervalle, le passage suivant le reprendra.
             today = date_at(at, user.timezone)
             rows = self._due_today(kind, rows, today)
             if not rows:
@@ -175,16 +173,15 @@ class ReminderService:
             await self.repo.session.commit()
             if channel == EMAIL:
                 emailed.add(user_id)
-            # Un compte peut recevoir les trois familles dans le meme passage :
-            # 'users' ne dit donc pas ce que le quota Resend a reellement paye.
+            # Un compte peut recevoir les trois familles dans le même passage :
+            # « users » ne dit pas ce que le quota Resend a payé.
             report[rules["sent"]] += 1
             if channel == EMAIL:
                 report[counter] += len(rows)
 
     async def _open_actions(self, reference: date, channel: str = EMAIL) -> list[tuple]:
-        # L'ouverture de la fenetre n'est plus jugee ici : elle depend du jour
-        # de la personne, que _dispatch connait et pas nous. On ne garde que
-        # les candidats dont une fenetre existe.
+        # L'ouverture dépend du jour de la personne, que _dispatch connaît et
+        # pas nous : on ne garde ici que les candidats dont une fenêtre existe.
         actionable = []
         for occurrence, commitment in await self.repo.action_candidates(reference, channel=channel):
             window = action_window(commitment, occurrence.due_date, reference=reference)
@@ -200,13 +197,11 @@ class ReminderService:
         return [EMAIL, PUSH]
 
     async def send_due(self, *, at: datetime) -> dict:
-        # La date du serveur ancre la requete ; celle de chacun tranche plus
-        # bas. Les deux sortent du meme instant.
+        # La date du serveur ancre la requête, celle de chacun tranche plus bas,
+        # et les deux sortent du même instant.
         reference = at.date()
-        # emails_sent est un plancher, pas la facture : le quota Resend compte
-        # aussi les transactionnels (verification, mot de passe, changement
-        # d'adresse), qui ne passent pas par ici. Le tableau de bord Resend fait
-        # foi.
+        # Un plancher, pas la facture : les transactionnels ne passent pas par
+        # ici. Le tableau de bord Resend fait foi.
         report = {
             "users": 0,
             "emails_sent": 0,
@@ -222,7 +217,7 @@ class ReminderService:
 
         for channel in self._channels():
             # L'ordre importe : action_required tamponne aussi le notice de la
-            # meme echeance, pour ne pas annoncer deux fois la meme chose.
+            # même échéance, pour ne pas annoncer deux fois la même chose.
             await self._dispatch(
                 ACTION,
                 await self._open_actions(reference, channel),

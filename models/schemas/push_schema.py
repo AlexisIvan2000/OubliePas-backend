@@ -5,8 +5,8 @@ MAX_KEY_LENGTH = 255
 
 
 class PushKeyResponse(BaseModel):
-    # Vide quand le serveur n'a pas de paire : le client sait alors se taire
-    # plutot que de proposer un interrupteur qui ne peut rien faire.
+    # Vide quand le serveur n'a pas de paire : le client se tait plutôt que de
+    # proposer un interrupteur qui ne peut rien faire.
     public_key: str | None
 
 

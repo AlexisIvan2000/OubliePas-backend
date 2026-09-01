@@ -34,8 +34,8 @@ def paragraph(value: str, color: str = TEXT, size: int = 15) -> str:
 
 
 def code_panel(value: str) -> str:
-    # Le dernier caractere porte l'espacement de la lettre suivante : sans le
-    # decalage a gauche, le code parait desaxe dans la boite.
+    # Le dernier caractère porte l'espacement de la lettre suivante : sans le
+    # décalage à gauche, le code paraît désaxé.
     return (
         '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"'
         ' style="margin:24px 0;"><tr>'
@@ -109,8 +109,8 @@ def footer(note: str, no_reply: str, link=None) -> str:
     )
 
 
-# L'en-tete ne porte que le nom : une image y serait bloquee par defaut dans la
-# plupart des boites de reception, et il ne resterait de toute facon que ce mot.
+# Le nom seul : une image serait bloquée par défaut dans la plupart des boîtes,
+# et il ne resterait de toute façon que ce mot.
 def _brand() -> str:
     return (
         f'<div style="font-family:{FONT};font-size:19px;font-weight:600;'

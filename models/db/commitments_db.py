@@ -25,8 +25,8 @@ COMMITMENT_FREQUENCIES = ("weekly", "monthly", "quarterly", "yearly", "oneoff")
 COMMITMENT_STATUSES = ("active", "paused", "archived")
 OCCURRENCE_STATUSES = ("pending", "paid", "skipped")
 REMINDER_KINDS = ("notice", "overdue", "action_required")
-# Le journal est desormais tenu par canal : sans cette dimension, le courriel
-# tamponne la ligne et le push du meme rappel ne part jamais.
+# Le journal est tenu par canal : sans cette dimension, le courriel tamponne la
+# ligne et le push du même rappel ne part jamais.
 REMINDER_CHANNELS = ("email", "push")
 DEFAULT_REMINDER_CHANNEL = "email"
 
@@ -42,17 +42,15 @@ PURGE_AFTER_DAYS = 30
 MAX_CANCELLATION_NOTICE_DAYS = 60
 
 # Plafond du service gratuit, pas un palier produit : il borne ce qu'un compte
-# suit a la fois, jamais son historique. Les archives et la corbeille en sont
-# exclues, et la valeur monte d'une ligne le jour ou elle serre.
+# suit à la fois, jamais son historique. Archives et corbeille en sont exclues.
 MAX_COMMITMENTS_PER_TYPE = 25
 COUNTED_STATUSES = ("active", "paused")
 
-# La corbeille a le droit de depasser le plafond : punir quelqu'un qui
-# recupere une ligne effacee par erreur serait pire que le depassement. Ce
-# droit avait un defaut, il etait sans fond — creer 25, tout supprimer,
-# creer 25, restaurer, et le compte gagnait 25 lignes a chaque tour sans
-# qu'aucune garde ne s'en apercoive. Le toit laisse passer la reprise d'une
-# corbeille pleine et arrete la boucle.
+# La corbeille a le droit de dépasser le plafond, sinon on y jetterait pour
+# faire de la place sans jamais pouvoir en ressortir. Ce droit était sans fond :
+# créer 25, tout jeter, recréer 25, restaurer, et le compte gagnait 25 lignes
+# par tour. Le toit laisse passer la reprise d'une corbeille pleine et arrête
+# la boucle.
 RESTORE_CEILING_FACTOR = 2
 
 

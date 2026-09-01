@@ -11,8 +11,8 @@ MAX_TIMEZONE_LENGTH = 64
 
 @lru_cache(maxsize=1)
 def known_timezones() -> frozenset[str]:
-    # available_timezones parcourt la base tz a chaque appel : sans ce cache,
-    # valider un profil couterait une lecture de disque.
+    # available_timezones parcourt la base tz à chaque appel : sans ce cache,
+    # valider un profil coûterait une lecture de disque.
     return frozenset(available_timezones())
 
 
@@ -30,10 +30,9 @@ def zone_named(name: str | None) -> ZoneInfo:
     try:
         return _zone(name)
     except Exception:
-        # Le nom est valide a l'ecriture, mais une base tz peut retirer une zone
-        # d'une version a l'autre. Un tableau de bord qui rend 500 pour cela
-        # serait pire que le decalage d'un fuseau : on retombe sur UTC, et on le
-        # dit dans le journal plutot que de le taire.
+        # Une base tz peut retirer une zone d'une version à l'autre. Rendre 500
+        # pour cela serait pire que le décalage : on retombe sur UTC, en le
+        # disant dans le journal.
         logger.warning("unknown time zone %r stored for a user, falling back to UTC", name)
         return _zone(DEFAULT_TIMEZONE)
 
@@ -43,9 +42,8 @@ def zone_of(user) -> ZoneInfo:
 
 
 def _now() -> datetime:
-    # L'unique lecture d'horloge du projet. Tout le reste en derive, ce qui rend
-    # une date gelable en un seul point pour les tests, et garantit qu'un meme
-    # passage ne voit pas deux instants differents.
+    # L'unique lecture d'horloge du projet : tout en dérive, une date est donc
+    # gelable en un point et un même passage ne voit jamais deux instants.
     return datetime.now(timezone.utc)
 
 
@@ -74,6 +72,6 @@ def today_for(user) -> date:
 
 
 def today_utc() -> date:
-    # Ce qui n'appartient a personne : les purges, les journaux, le verrou du
-    # cron. Tout calcul qu'un utilisateur verra passe par today_for.
+    # Ce qui n'appartient à personne : purges, journaux, verrou du cron. Tout
+    # calcul qu'un utilisateur verra passe par today_for.
     return _now().date()

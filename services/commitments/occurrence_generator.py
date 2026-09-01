@@ -13,17 +13,15 @@ MAX_OCCURRENCES_PER_COMMITMENT = 60
 
 
 def horizon_days(frequency: str) -> int:
-    # La fenetre doit toujours couvrir au moins une periode entiere, sinon un
-    # engagement annuel n'a aucune occurrence en base pendant la majeure partie
-    # de l'annee et sa prochaine echeance ne s'affiche nulle part.
+    # Au moins une période entière, sinon un engagement annuel n'a aucune
+    # échéance en base la plupart de l'année et n'affiche plus rien.
     return max(
         GENERATION_HORIZON_DAYS,
         LONGEST_PERIOD_DAYS[frequency] + HORIZON_MARGIN_DAYS,
     )
 
 
-# Reexporte : la definition vit dans core.clock, aux cotes de today_for, pour
-# que les deux notions de « aujourd'hui » se lisent au meme endroit.
+# Réexporté : la définition vit dans core.clock, à côté de today_for.
 __all__ = ["today_utc"]
 
 
@@ -41,8 +39,8 @@ def nth_due_date(starts_on: date, frequency: str, index: int) -> date:
 
 
 def _first_index(starts_on: date, frequency: str, floor: date) -> int:
-    # Le - 1 est une periode de marge : le calcul en mois ignore le jour du mois et
-    # pourrait depasser l'indice reel. Le filtre due >= floor jette l'iteration en trop.
+    # Une période de marge : le calcul en mois ignore le jour du mois et pourrait
+    # dépasser l'indice réel. Le filtre due >= floor jette l'itération en trop.
     if floor <= starts_on:
         return 0
     if frequency == "weekly":
@@ -63,10 +61,9 @@ def occurrence_dates(
         return []
 
     if frequency == "oneoff":
-        # Seule exception au plancher : une facture ponctuelle datee d'hier a bel et
-        # bien existe, la refuser la ferait disparaitre sans trace. Les frequences
-        # recurrentes gardent le plancher, sinon un abonnement demarre il y a deux ans
-        # fabriquerait deux ans d'historique a sa creation.
+        # Seule exception au plancher : une facture ponctuelle datée d'hier a bel
+        # et bien existé. Les fréquences récurrentes le gardent, sinon un
+        # abonnement antidaté de deux ans fabriquerait deux ans d'historique.
         within_term = ends_on is None or starts_on <= ends_on
         if starts_on <= horizon and within_term:
             return [starts_on]
@@ -108,9 +105,9 @@ class OccurrenceGenerator:
             for due in dates
         ]
 
-    # « aujourd'hui » est exige, jamais devine : un plancher pris sur
-    # l'horloge du serveur decalerait la generation d'un jour pour la moitie
-    # de la planete, et l'oubli ne se verrait nulle part.
+    # Exigé, jamais deviné : un plancher pris sur l'horloge du serveur décalerait
+    # la génération d'un jour pour la moitié de la planète, sans que rien ne le
+    # signale.
     async def sync(self, commitment: Commitment, *, today: date) -> int:
         if commitment.status != "active":
             return 0
@@ -124,8 +121,7 @@ class OccurrenceGenerator:
     async def sync_all_active(self, *, today: date | None = None) -> int:
         created = 0
         for commitment, zone in await self.repo.active_with_timezone():
-            # « Avant aujourd'hui » ne veut pas dire la meme chose a Tokyo et
-            # a Moncton : le plancher qui empeche une ligne antidatee de
-            # fabriquer de l'historique est celui de son proprietaire.
+            # « Avant aujourd'hui » ne veut pas dire la même chose à Tokyo et à
+            # Moncton : le plancher est celui du propriétaire.
             created += await self.sync(commitment, today=today or today_in(zone))
         return created

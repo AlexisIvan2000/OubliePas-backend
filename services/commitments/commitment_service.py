@@ -92,10 +92,9 @@ class CommitmentService:
     ):
         self.repo = repo
         self.generator = generator
-        # Le fuseau est lie a la construction, une fois par requete, plutot
-        # que passe a huit methodes. Le service n'a alors qu'une seule
-        # definition de « aujourd'hui », et c'est celle de la personne qui
-        # regarde l'ecran — pas celle du serveur.
+        # Lié à la construction, une fois par requête, plutôt que passé à huit
+        # méthodes : une seule définition de « aujourd'hui », celle de la
+        # personne qui regarde et non celle du serveur.
         self.timezone = timezone
 
     def _today(self) -> date:
@@ -161,9 +160,8 @@ class CommitmentService:
             raise CommitmentLimitReached(commitment_type, MAX_COMMITMENTS_PER_TYPE)
 
     async def _guard_entry(self, user_id: str, commitment, changes: dict) -> None:
-        # Desarchiver et changer de type font entrer une ligne dans la population
-        # comptee sans passer par la creation : sans cette garde, le plafond ne
-        # tiendrait que le chemin normal.
+        # Désarchiver et changer de type font entrer une ligne dans la
+        # population comptée sans passer par la création.
         target_type = changes.get("type", commitment.type)
         target_status = changes.get("status", commitment.status)
         if target_status not in COUNTED_STATUSES:
@@ -272,10 +270,9 @@ class CommitmentService:
         return {"deleted": len(removed), "ids": [str(one) for one in removed]}
 
     async def _guard_restore(self, user_id: str, ids: list) -> None:
-        # Restaurer a le droit de depasser le plafond, sinon une corbeille
-        # pleine serait perdue. Le droit s'arrete au toit : sans lui, le cycle
-        # creer / supprimer / restaurer ajoutait 25 lignes par tour et le
-        # plafond ne plafonnait plus rien.
+        # Restaurer dépasse le plafond, sinon une corbeille pleine serait
+        # perdue. Le droit s'arrête au toit : sans lui, le cycle créer,
+        # supprimer, restaurer ajoutait 25 lignes par tour.
         toit = RESTORE_CEILING_FACTOR * MAX_COMMITMENTS_PER_TYPE
         vises = {str(one) for one in ids}
         entrants: dict[str, int] = {}
@@ -310,8 +307,7 @@ class CommitmentService:
         return [self._commitment_response(commitment, None) for commitment in commitments]
 
     async def purge_now(self, user_id: str, *, commitment_type: str | None = None) -> dict:
-        # Le seul effacement sans retour : apres lui, la corbeille ne peut plus
-        # rien rendre.
+        # Le seul effacement sans retour.
         purged = await self.repo.purge_now(user_id, commitment_type=commitment_type)
         logger.warning("user %s purged %s commitment(s) for good", user_id, purged)
         return {"deleted": purged}

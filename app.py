@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 def configure_logging() -> None:
-    # stderr et non stdout : hors terminal, stdout est bufferise par blocs et
+    # stderr et non stdout : hors terminal, stdout est bufferisé par blocs et
     # la trace attend 8 Ko pendant que la plateforme n'affiche rien.
     logging.basicConfig(
         level=logging.INFO,
@@ -49,7 +49,7 @@ async def lifespan(app: FastAPI):
 
 
 def docs_urls(debug: bool) -> dict:
-    # Un seul client, deja au courant : publier le schema n'apporte rien.
+    # Un seul client, déjà au courant : publier le schéma n'apporte rien.
     if debug:
         return {"docs_url": "/docs", "redoc_url": "/redoc", "openapi_url": "/openapi.json"}
     return {"docs_url": None, "redoc_url": None, "openapi_url": None}
@@ -63,12 +63,12 @@ app = FastAPI(
 )
 
 app.state.limiter = limiter
-# L'ordre est inverse : le dernier ajoute enveloppe les precedents.
+# L'ordre est inversé : le dernier ajouté enveloppe les précédents.
 app.add_middleware(ServerErrorEnvelopeMiddleware)
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
-# Le plus a l'exterieur : le contexte doit exister avant toute journalisation.
+# Le plus à l'extérieur : le contexte doit exister avant toute journalisation.
 app.add_middleware(RequestContextMiddleware)
 
 app.add_middleware(
@@ -81,7 +81,7 @@ app.add_middleware(
 )
 
 
-# Le client rafraichit seul : journaliser chaque 401 noierait les incidents.
+# Le client rafraîchit seul : journaliser chaque 401 noierait les incidents.
 QUIET_CODES = {"INVALID_ACCESS_TOKEN"}
 
 
@@ -125,8 +125,8 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
 @app.exception_handler(Exception)
 async def unhandled_handler(request: Request, exc: Exception):
     logger.exception("unhandled error above the envelope on %s %s", request.method, request.url.path)
-    # Ne couvre que ce qui echoue au-dessus du middleware : sans en-tetes,
-    # mais avec la meme enveloppe que le reste de l'API.
+    # Ne couvre que ce qui échoue au-dessus du middleware : sans en-têtes,
+    # mais avec la même enveloppe que le reste de l'API.
     return JSONResponse(status_code=500, content=INTERNAL_ERROR)
 
 

@@ -67,9 +67,8 @@ class User(Base):
     reminder_email_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=sa.text("true")
     )
-    # Distinct du courriel : couper les notifications ne doit pas couper les
-    # rappels, et le defaut est faux parce qu'un push exige une permission
-    # navigateur que personne n'a encore donnee.
+    # Faux par défaut : le push exige une permission navigateur que personne
+    # n'a encore donnée.
     reminder_push_enabled: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=sa.text("false")
     )
@@ -82,8 +81,7 @@ class User(Base):
     reminder_action_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=sa.text("true")
     )
-    # Faux par defaut : le recapitulatif est un envoi de plus, pas un reglage
-    # qu'on subit. Ceux qui le veulent le demandent.
+    # Faux par défaut : un envoi de plus se demande, il ne se subit pas.
     reminder_weekly_enabled: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=sa.text("false")
     )
@@ -97,10 +95,9 @@ class User(Base):
         default=DEFAULT_LOCALE,
         server_default=sa.text(f"'{DEFAULT_LOCALE}'"),
     )
-    # Pas de CHECK ici, contrairement a locale : la liste IANA compte des
-    # centaines de noms et change avec la base tz. Une contrainte figee dans
-    # une migration refuserait un jour un fuseau parfaitement valide. C'est le
-    # schema d'entree qui valide, contre la base reellement installee.
+    # Pas de CHECK, contrairement à locale : la liste IANA change avec la base
+    # tz, et une contrainte figée dans une migration refuserait un jour un
+    # fuseau valide. C'est le schéma d'entrée qui valide.
     timezone: Mapped[str] = mapped_column(
         String(MAX_TIMEZONE_LENGTH),
         default=DEFAULT_TIMEZONE,
@@ -162,10 +159,8 @@ class VerificationAttempt(Base):
     )
 
 
-# Un telephone, une tablette, deux ou trois navigateurs de bureau : les
-# appareils reels d'une personne tiennent largement dessous. Sans borne, un
-# compte pouvait enregistrer trente adresses par heure sans fin, et le cron
-# postait a chacune une fois par jour.
+# Sans borne, un compte pouvait enregistrer trente adresses par heure sans fin,
+# et le cron postait à chacune une fois par jour.
 MAX_PUSH_SUBSCRIPTIONS_PER_USER = 10
 
 
@@ -176,18 +171,15 @@ class PushSubscription(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
-    # L'adresse d'envoi identifie l'abonnement a elle seule, et le navigateur la
-    # reconduit telle quelle : elle sert de cle d'upsert plutot qu'un couple
-    # (utilisateur, appareil) qu'aucun des deux cotes ne sait fabriquer.
+    # Le navigateur reconduit la même adresse à chaque réabonnement : elle sert
+    # de clé d'upsert, faute d'un couple (utilisateur, appareil) que ni l'un ni
+    # l'autre ne sait fabriquer.
     #
-    # Invariant : cette colonne est un porteur d'autorite. Unique a l'echelle
-    # de la table, et l'upsert de save() reassigne user_id — ce qui fait
-    # justement marcher un appareil qui change de mains, et signifie que qui
-    # apprend une adresse reprend l'abonnement du compte qui la detient. La
-    # victime ne verrait rien : le client lit l'abonnement du navigateur, pas
-    # cette table, et son interrupteur resterait au vert. L'adresse ne doit
-    # donc jamais partir dans un journal, une trace ou un message d'erreur ;
-    # les refus de endpoint_policy n'en gardent que l'hote.
+    # Invariant : cette colonne vaut porteur d'autorité. L'upsert réassigne
+    # user_id, ce qui fait marcher un appareil qui change de mains et signifie
+    # que qui apprend une adresse reprend l'abonnement. La victime ne verrait
+    # rien, son client lisant le navigateur et non cette table. L'adresse ne
+    # part donc dans aucun journal : endpoint_policy n'en garde que l'hôte.
     endpoint: Mapped[str] = mapped_column(Text, unique=True)
     p256dh: Mapped[str] = mapped_column(String(255))
     auth: Mapped[str] = mapped_column(String(255))

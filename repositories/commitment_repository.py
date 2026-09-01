@@ -43,9 +43,9 @@ class CommitmentRepository:
         await self.session.flush()
         return commitment
 
-    # Un engagement supprime reste en base 30 jours pour rendre l'annulation
-    # possible. Toutes les lectures passent par ces deux helpers : oublier le
-    # garde-fou sur une requete ferait reapparaitre ses montants dans les totaux.
+    # Toutes les lectures passent par ces deux helpers : oublier le garde-fou
+    # sur une seule requête ferait réapparaître un montant supprimé dans un
+    # total.
     def _live(self, user_id: str):
         return select(Commitment).where(
             Commitment.user_id == user_id,
@@ -106,9 +106,8 @@ class CommitmentRepository:
         return result.rowcount
 
     async def active_with_timezone(self) -> list[tuple[Commitment, str]]:
-        # Le fuseau voyage avec la ligne : le plancher de generation est celui
-        # du proprietaire, et le cron parcourt les engagements de tout le monde
-        # en un seul passage. Une seconde requete par utilisateur ferait N+1.
+        # Le fuseau voyage avec la ligne : le plancher est celui du
+        # propriétaire, et une requête par utilisateur ferait N+1.
         result = await self.session.execute(
             select(Commitment, User.timezone)
             .join(User, User.id == Commitment.user_id)
@@ -425,9 +424,9 @@ class CommitmentRepository:
     async def due_between(
         self, start: date, end: date
     ) -> list[tuple[CommitmentOccurrence, Commitment]]:
-        # Le recapitulatif ne filtre pas sur is_reminder_enabled, contrairement
-        # aux rappels : c'est une image de la semaine, et en retirer une ligne
-        # fausserait le total annonce juste en dessous.
+        # Pas de filtre sur is_reminder_enabled, contrairement aux rappels :
+        # c'est une image de la semaine, et en retirer une ligne fausserait le
+        # total annoncé en dessous.
         result = await self.session.execute(
             select(CommitmentOccurrence, Commitment)
             .join(Commitment, Commitment.id == CommitmentOccurrence.commitment_id)
@@ -464,18 +463,17 @@ class CommitmentRepository:
         )
 
     def _notice_window(self, on_date: date, channel: str = DEFAULT_REMINDER_CHANNEL):
-        # La borne large sert l'index sur (due_date, status) ; la seconde applique
-        # le delai propre a chaque engagement. Sans elle, 87 % des lignes remontees
-        # etaient hydratees en objets puis jetees.
+        # La borne large sert l'index sur (due_date, status), la seconde applique
+        # le délai propre à l'engagement. Sans elle, 87 % des lignes remontées
+        # étaient hydratées puis jetées.
         earliest, latest = query_bounds(NOTICE, on_date)
         return self._unreminded("notice", earliest=earliest, latest=latest, channel=channel)
 
     async def due_for_reminder(
         self, on_date: date, *, channel: str = DEFAULT_REMINDER_CHANNEL
     ) -> list[tuple[CommitmentOccurrence, Commitment]]:
-        # Le delai de l'engagement, elargi lui aussi : sinon un compte a l'est
-        # du serveur serait ecarte avant que sa propre date ait pu decider, et
-        # is_due n'aurait plus rien a trancher.
+        # Élargi lui aussi : sinon un compte à l'est serait écarté avant que sa
+        # propre date ait pu décider, et is_due n'aurait plus rien à trancher.
         result = await self.session.execute(
             self._notice_window(on_date, channel).where(
                 CommitmentOccurrence.due_date
@@ -525,8 +523,8 @@ class CommitmentRepository:
         await self.session.flush()
         return result.rowcount
 
-    # L'effacement porte sur la famille entiere, tous canaux confondus : rouvrir
-    # une echeance doit rendre le rappel possible partout, pas sur un seul canal.
+    # Sur la famille entière, tous canaux confondus : rouvrir une échéance doit
+    # rendre le rappel possible partout.
     async def clear_reminders(self, commitment_id: str, *, kind: str) -> int:
         pending = select(CommitmentOccurrence.id).where(
             CommitmentOccurrence.commitment_id == commitment_id,

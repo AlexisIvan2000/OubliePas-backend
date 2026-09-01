@@ -17,8 +17,7 @@ class UserCreate(BaseModel):
     password: str
     currency: str = Field(default=DEFAULT_CURRENCY, min_length=3, max_length=3)
     locale: Literal["fr", "en"] = DEFAULT_LOCALE
-    # Le navigateur le connait, le serveur ne peut que le deviner mal : il
-    # part avec les donnees du compte plutot que d'etre reconstitue d'une
+    # Le navigateur le connaît, le serveur ne pourrait que le déduire d'une
     # adresse IP. Absent, on garde UTC et la connexion suivante corrigera.
     timezone: str = Field(default=DEFAULT_TIMEZONE, min_length=1, max_length=MAX_TIMEZONE_LENGTH)
 

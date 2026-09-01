@@ -24,33 +24,13 @@ from services.pushing.push_sender import PushSender
 
 LOCK_KEY = 8142026
 
-# L'heure planifiee du passage. Elle sert aussi a rejouer une date : le calcul
-# de chacun part d'un instant, et un instant sans heure n'existe pas.
-#
-# Ce que midi UTC donne, verifie :
-#
-#     Honolulu   UTC-10   02 h        <- nuit
-#     Vancouver  UTC-07   05 h
-#     Moncton    UTC-03   09 h
-#     Londres    UTC+01   13 h
-#     Paris      UTC+02   14 h
-#     Kolkata    UTC+05:30 17 h 30
-#     Tokyo      UTC+09   21 h
-#     Auckland   UTC+12   00 h, le lendemain    <- nuit
-#     Kiritimati UTC+14   02 h, le lendemain    <- nuit
-#
-# Le gros des Ameriques recoit le matin, l'Europe l'apres-midi, l'Asie le soir.
-# Deux bords recoivent de nuit, et non un seul : l'extreme est passe minuit — sa
-# date a deja tourne, ce que la selection par fuseau prend en compte — mais
-# Hawai aussi, a l'ouest, sans changement de date. Les deux sont acceptes : une
-# heure d'envoi unique ne peut pas convenir a tout le monde, et la deplacer ne
-# ferait que choisir d'autres perdants. Le jour ou cela comptera, c'est le
-# passage qui devra tourner plus souvent, pas cette constante qui devra bouger.
+# Doit rester d'accord avec la planification Railway. Elle sert à rejouer une
+# date passée : le calcul de chacun part d'un instant, et un instant sans heure
+# n'existe pas. Le tableau des heures par fuseau est dans le README.
 CRON_HOUR = time(12, 0)
 
-# 80 % des 100 envois quotidiens du plan gratuit Resend. La marge de 20 %
-# couvre l'angle mort du compteur : les transactionnels (codes de verification,
-# reinitialisations) prennent aussi du quota sans passer par emails_sent.
+# 80 % des 100 envois quotidiens du plan gratuit. La marge couvre l'angle mort
+# du compteur : les transactionnels prennent du quota sans passer par ici.
 RESEND_DAILY_ALERT_THRESHOLD = 80
 
 logger = logging.getLogger(__name__)
@@ -61,8 +41,8 @@ def should_alert(emails_sent: int, operator: str | None) -> bool:
 
 
 async def alert_operator(reference: date, emails_sent: int) -> None:
-    # L'alerte est le thermometre, pas le patient : si elle echoue, le job
-    # continue et son code de sortie reste celui des rappels utilisateurs.
+    # Le thermomètre, pas le patient : son échec ne doit pas faire échouer un
+    # passage où tous les rappels sont partis.
     try:
         await EmailSender().send_admin_email(
             OPERATOR_EMAIL,
@@ -101,15 +81,14 @@ async def run_daily(session: AsyncSession, *, today: date | None = None) -> dict
         push_sender=PushSender(),
     ).send_due(at=moment)
 
-    # Le recapitulatif n'a pas de planification propre : le passage quotidien
-    # existe deja, il lui suffit de demander quel jour on est. Le rattrapage
-    # d'un lundi manque se fait donc les jours suivants, jusqu'a dimanche.
+    # Pas de planification propre : c'est ce qui permet de rattraper un lundi
+    # manqué les jours suivants.
     digest = await WeeklyDigestService(
         repo, AuthRepository(session), DigestRepository(session), EmailSender()
     ).send(at=moment)
 
-    # Le seuil se juge sur le total du passage : un lundi, le recapitulatif
-    # part a tous les abonnes d'un coup et c'est ce pic qui approche du quota.
+    # Sur le total du passage : un lundi, le récapitulatif part à tous les
+    # abonnés d'un coup, et c'est ce pic qui approche du quota.
     total_emails = reminders["emails_sent"] + digest["weekly_sent"]
     if should_alert(total_emails, OPERATOR_EMAIL):
         await alert_operator(reference, total_emails)

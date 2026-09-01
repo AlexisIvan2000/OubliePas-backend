@@ -32,8 +32,8 @@ def check_cors_policy(origins: list[str]) -> None:
 def check_vapid_keys(
     public_key: str | None, private_key: str | None, subject: str | None
 ) -> None:
-    # Absente, le push s'eteint et l'API vit sans. Presente mais illisible,
-    # la faute n'apparaitrait qu'au premier clic, en 500.
+    # Absente, le push s'éteint et l'API vit sans. Présente mais illisible, la
+    # faute n'apparaîtrait qu'au premier clic, en 500.
     if not public_key and not private_key:
         return
 
@@ -69,8 +69,8 @@ def check_vapid_keys(
         .rstrip("=")
     )
 
-    # Une paire depareillee ne leve nulle part : le service de push rejette
-    # en silence, et personne n'apprend que les rappels ne partent plus.
+    # Une paire dépareillée ne lève nulle part : le service de push rejette en
+    # silence, et personne n'apprend que les rappels ne partent plus.
     if derived != public_key.strip().rstrip("="):
         raise RuntimeError(
             "VAPID_PUBLIC_KEY does not match VAPID_PRIVATE_KEY. Push services "
@@ -86,7 +86,7 @@ def check_vapid_keys(
 
 
 # Ici et non dans app.py pour qu'Alembic l'applique aussi : sans elle, un
-# -x db_url colle du tableau de bord echoue en affichant le mot de passe.
+# « -x db_url » collé du tableau de bord échoue en affichant le mot de passe.
 def to_async_url(raw: str) -> str:
     if raw.startswith("postgresql://"):
         return raw.replace("postgresql://", "postgresql+asyncpg://", 1)
@@ -154,15 +154,13 @@ RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "hello@oubliepas.com")
 RESEND_FROM_NAME = os.getenv("RESEND_FROM_NAME", "OubliePas")
 RESEND_FROM_EMAIL_SUPPORT = os.getenv("RESEND_FROM_EMAIL_SUPPORT", "support@oubliepas.com")
 RESEND_FROM_EMAIL_REMINDER = os.getenv("RESEND_FROM_EMAIL_REMINDER", "reminder@oubliepas.com")
-# Supervision, pas dependance : absente, l'alerte se tait.
+# Supervision, pas dépendance : absente, l'alerte se tait.
 OPERATOR_EMAIL = os.getenv("OPERATOR_EMAIL")
 
 def clean_secret(raw: str | None) -> str | None:
-    # Un secret colle depuis un tableau de bord arrive souvent avec un retour
-    # a la ligne. check_vapid_keys le rognait avant de lire, la signature non :
-    # la paire passait le controle de demarrage et echouait au premier envoi,
-    # c'est-a-dire la panne exacte que ce controle existe pour rendre
-    # impossible. Le rognage appartient donc a la lecture, pas aux deux.
+    # Un secret collé d'un tableau de bord arrive souvent avec un retour à la
+    # ligne. Le contrôle de démarrage le rognait avant de lire, la signature
+    # non : la paire passait le contrôle et échouait au premier envoi.
     return (raw or "").strip() or None
 
 

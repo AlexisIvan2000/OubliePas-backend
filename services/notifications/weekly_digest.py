@@ -36,12 +36,12 @@ class WeeklyDigestService:
         start = week_start(reference)
         end = start + timedelta(days=6)
 
-        # C'est cette clef, et non une garde sur le lundi, qui tient l'envoi
-        # unique : un lundi en panne est donc rattrape le lendemain.
+        # C'est cette clé, et non une garde sur le lundi, qui tient l'envoi
+        # unique : un lundi en panne est donc rattrapé le lendemain.
         already = await self.digest_repo.sent_for_week(start)
 
-        # Du jour meme a dimanche, jamais depuis lundi : un rattrapage
-        # annoncerait sinon des echeances passees, deja couvertes par 'overdue'.
+        # Du jour même à dimanche, jamais depuis lundi : un rattrapage
+        # annoncerait sinon des échéances déjà couvertes par overdue.
         grouped: dict[str, list] = defaultdict(list)
         for occurrence, commitment in await self.repo.due_between(reference, end):
             grouped[str(occurrence.user_id)].append((occurrence, commitment))
@@ -88,8 +88,8 @@ class WeeklyDigestService:
                 continue
 
             await self.digest_repo.mark_sent(user_id, start)
-            # Un commit par compte : un echec en cours de passage ne doit pas
-            # renvoyer a ceux qui ont deja recu.
+            # Un commit par compte : un échec en cours de passage ne doit pas
+            # renvoyer à ceux qui ont déjà reçu.
             await self.repo.session.commit()
             report["weekly_sent"] += 1
 

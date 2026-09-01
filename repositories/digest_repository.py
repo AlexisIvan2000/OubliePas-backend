@@ -13,9 +13,8 @@ class DigestRepository:
     async def sent_for_week(
         self, week_start: date, *, channel: str = DEFAULT_REMINDER_CHANNEL
     ) -> set[str]:
-        # Une seule requete pour toute la semaine plutot qu'une par compte :
-        # le passage quotidien interroge cette table pour chaque utilisateur
-        # eligible, et la liste tient en memoire.
+        # Une requête pour la semaine plutôt qu'une par compte : la liste tient
+        # en mémoire.
         result = await self.session.execute(
             select(WeeklyDigest.user_id).where(
                 WeeklyDigest.week_start == week_start,

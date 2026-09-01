@@ -30,10 +30,9 @@ async def check_otp(repo, db_user, kind: str, code: str, *, expired, invalid) ->
     if await repo.attempts(user_id, kind) >= MAX_VERIFICATION_ATTEMPTS:
         raise TooManyVerificationAttempts()
 
-    # L'increment precede la comparaison, et c'est la propriete de securite :
-    # compte apres coup, un essai qui echoue ne couterait rien des lors que la
-    # transaction est validee malgre l'exception, et le plafond ne tiendrait
-    # plus rien.
+    # L'incrément précède la comparaison, et c'est la propriété de sécurité :
+    # compté après coup, un essai qui échoue ne coûterait rien, puisque la
+    # transaction est validée malgré l'exception.
     await repo.bump_attempts(user_id, kind)
 
     hash_column, expires_column = CODE_COLUMNS[kind]
@@ -52,9 +51,8 @@ class OtpService:
         self.email_sender = EmailSender()
 
     async def _issue(self, kind: str, user_id: str, *, db_user, locale, write, send):
-        # Le trajet est le meme pour les trois codes : garde de renvoi, tirage,
-        # empreinte, expiration, compteur. Seuls la colonne visee, la cle
-        # d'ecriture et le courriel changent, et ils arrivent en parametres.
+        # Le même trajet pour les trois codes. Seuls la colonne visée, la clé
+        # d'écriture et le courriel changent, et ils arrivent en paramètres.
         if db_user:
             self._check_resend_rate_limit(db_user)
 
@@ -68,9 +66,9 @@ class OtpService:
             "last_code_sent_at": now,
             "code_resend_count": self._compute_resend_count(db_user, now) if db_user else 1,
         })
-        # Un code neuf rend ses essais au flux qui l'a demande, et a lui seul :
-        # demander une verification ne doit pas deverrouiller une
-        # reinitialisation epuisee.
+        # Un code neuf rend ses essais au flux qui l'a demandé, et à lui seul :
+        # demander une vérification ne déverrouille pas une réinitialisation
+        # épuisée.
         if user_id:
             await self.repo.clear_attempts(user_id, kind)
 

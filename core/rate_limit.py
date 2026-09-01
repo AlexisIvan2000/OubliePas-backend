@@ -5,15 +5,13 @@ from core.config import REDIS_URL, TRUSTED_PROXY_COUNT
 from core.security import Security
 
 FALLBACK_IP = "127.0.0.1"
-# Assez haut pour rester invisible a l'usage, assez bas pour borner une
-# boucle : le resume emet sept requetes SQL par appel et le pool ne tient
-# que dix connexions.
+# Invisible à l'usage, mais assez bas pour borner une boucle : le résumé émet
+# sept requêtes SQL par appel et le pool ne tient que dix connexions.
 READ_LIMIT = "120/minute"
 
-# Une paire plutot qu'un seul plafond : la borne courte arrete le script, la
-# borne longue borne la facture Resend. Un plafond horaire seul punit les IP
-# partagees (NAT d'entreprise, CGNAT mobile), un plafond minute seul laisse
-# passer trois cents comptes et trois cents mails par heure.
+# Une paire plutôt qu'un plafond : la borne courte arrête le script, la longue
+# borne la facture Resend. Un plafond horaire seul punit les IP partagées, un
+# plafond minute seul laisse passer trois cents envois par heure.
 EMAIL_LIMIT = "5/minute;20/hour"
 
 

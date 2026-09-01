@@ -9,8 +9,8 @@ from starlette.concurrency import run_in_threadpool
 from datetime import datetime, timedelta, timezone
 from core.config import JWT_SECRET_KEY, JWT_ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS
 
-# Argon2 hache ce qu'on lui donne, aussi long soit-il : borner l'entree
-# evite qu'une requete de quelques megaoctets occupe un fil de calcul.
+# Argon2 hache ce qu'on lui donne, aussi long soit-il : borner l'entrée évite
+# qu'une requête de quelques mégaoctets occupe un fil de calcul.
 MAX_PASSWORD_LENGTH = 128
 
 ph = PasswordHasher()

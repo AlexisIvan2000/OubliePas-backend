@@ -11,10 +11,9 @@ NOTICE = "notice"
 OVERDUE = "overdue"
 ACTION = "action_required"
 
-# De UTC-12 a UTC+14 : le jour d'une personne ne s'ecarte jamais de plus d'un
-# jour de celui du serveur. La requete elargit donc d'un jour de chaque cote,
-# parce que personne ne doit etre ecarte avant que sa propre date ait pu
-# trancher ; le predicat reprend ensuite les memes bornes avec cette date-la.
+# De UTC-12 à UTC+14, le jour d'une personne ne s'écarte jamais de plus d'un
+# jour de celui du serveur. La requête élargit donc d'un jour de chaque côté,
+# et le prédicat reprend les mêmes bornes avec cette date-là.
 TIMEZONE_SPREAD_DAYS = 1
 
 
@@ -49,8 +48,7 @@ def is_due(kind: str, occurrence, commitment, today: date) -> bool:
     """
     earliest, latest = bounds(kind, today)
     if kind == NOTICE:
-        # Le delai propre a l'engagement. La requete ne peut pas l'appliquer au
-        # jour pres sans ecarter les fuseaux voisins ; elle le fait large, et
-        # c'est ici que la borne devient juste.
+        # Le délai propre à l'engagement. La requête le fait large pour ne pas
+        # écarter les fuseaux voisins, et c'est ici que la borne devient juste.
         latest = min(latest, today + timedelta(days=commitment.reminder_days_before))
     return earliest <= occurrence.due_date <= latest

@@ -132,9 +132,8 @@ CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
 
 def get_commitment_service(repo: CommitmentRepoDep, user: CurrentUserDep) -> CommitmentService:
-    # Le fuseau entre ici et nulle part ailleurs : toutes les routes de ce
-    # service exigent deja un compte, et FastAPI ne resout l'utilisateur
-    # qu'une fois par requete.
+    # Le fuseau entre ici et nulle part ailleurs. Toutes les routes de ce
+    # service exigent déjà un compte, et FastAPI ne le résout qu'une fois.
     return CommitmentService(repo, OccurrenceGenerator(repo), timezone=user.timezone)
 
 

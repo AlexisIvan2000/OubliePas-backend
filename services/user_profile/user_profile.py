@@ -208,8 +208,8 @@ class UserProfile:
         })
         await self.repo.clear_attempts(user_id, "email_change")
 
-        # Pas de revocation non plus : le jeton porte l'identifiant du compte,
-        # pas son adresse. Les sessions ouvertes restent valides et exactes.
+        # Pas de révocation : le jeton porte l'identifiant du compte, pas son
+        # adresse. Les sessions ouvertes restent valides et exactes.
         return {"message": "Email changed successfully"}
 
     async def delete_account(self, user_id: str, data: DeleteAccount):
@@ -217,9 +217,9 @@ class UserProfile:
 
         if db_user.password_hash:
             if not data.password or len(data.password) > MAX_PASSWORD_LENGTH:
-                # Meme reponse et meme travail qu'un mot de passe faux : sans la
-                # verification a vide, le temps de reponse dirait que celui-ci
-                # n'a meme pas ete compare.
+                # Même réponse et même travail qu'un mot de passe faux : sans
+                # la vérification à vide, le temps de réponse trahirait qu'il
+                # n'a même pas été comparé.
                 await Security.dummy_verify_async()
                 raise IncorrectPassword()
             if not await Security.verify_password_async(db_user.password_hash, data.password):
@@ -233,9 +233,8 @@ class UserProfile:
         await self.repo.delete_user(user_id)
 
         if is_stored_key(avatar_key) and not await self.storage.delete(avatar_key):
-            # Le compte est parti, le fichier non. Sans cette ligne, la photo
-            # resterait dans le seau sans que rien ne le dise. La reprise
-            # automatique reste a construire.
+            # Le compte est parti, le fichier non : sans cette ligne, la photo
+            # resterait dans le seau sans que rien ne le dise.
             logger.error("avatar %s left behind after account deletion", avatar_key)
 
         return {"message": "Account deleted successfully"}
